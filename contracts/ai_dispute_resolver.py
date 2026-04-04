@@ -24,7 +24,7 @@ class AIDisputeResolver(gl.Contract):
         self.evidence = evidence
         
         result = gl.eq_principle.prompt_non_comparative(
-            lambda:f"""
+            lambda: f"""
             <system>You are a neutral, fair judge on the GenLayer Court.</system>
             <claim>{claim}</claim>
             <evidence>{evidence}</evidence>
