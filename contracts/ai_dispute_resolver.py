@@ -22,17 +22,15 @@ class AIDisputeResolver(gl.Contract):
             raise Exception("Claim or evidence too long or empty")
         self.claim_text = claim
         self.evidence = evidence
-
-        prompt = """
+        
+        result = gl.eq_principle.prompt_non_comparative(
+            lambda:f"""
             <system>You are a neutral, fair judge on the GenLayer Court.</system>
             <claim>{claim}</claim>
             <evidence>{evidence}</evidence>
             <task>Return ONLY valid JSON. No extra text.</task>
             <output_format>{{"verdict": "guilty|not_guilty|insufficient_evidence", "reason": "one short clear sentence"}}</output_format>
-        """.format(claim=claim, evidence=evidence)
-
-        result = gl.eq_principle.prompt_non_comparative(
-            lambda: prompt,
+            """.
             task="Resolve the dispute fairly",
             criteria="Must return valid JSON with verdict and reason fields only"
         )
