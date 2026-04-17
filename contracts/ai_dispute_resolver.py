@@ -30,7 +30,7 @@ class AIDisputeResolver(gl.Contract):
             <evidence>{evidence}</evidence>
             <task>Return ONLY valid JSON. No extra text.</task>
             <output_format>{{"verdict": "guilty|not_guilty|insufficient_evidence", "reason": "one short clear sentence"}}</output_format>
-            """.
+            """,
             task="Resolve the dispute fairly",
             criteria="Must return valid JSON with verdict and reason fields only"
         )
