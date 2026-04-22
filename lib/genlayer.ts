@@ -5,10 +5,10 @@ import { defineChain } from "viem";
 
 export const genlayerChain = defineChain({
   id: 61999,
-  name: "GenLayer",
+  name: "GenLayer Studio",
   nativeCurrency: {
-    name: "ETH",
-    symbol: "ETH",
+    name: "GEN",
+    symbol: "GEN",
     decimals: 18
   },
   rpcUrls: {
@@ -70,6 +70,33 @@ export const disputeResolverAbi = [
         ]
       }
     ]
+  },
+  {
+    type: "function",
+    name: "get_my_disputes",
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple[]",
+        components: [
+          { name: "id", type: "uint64" },
+          { name: "submitter", type: "address" },
+          { name: "claim", type: "string" },
+          { name: "evidence", type: "string" },
+          { name: "verdict", type: "string" },
+          { name: "reason", type: "string" }
+        ]
+      }
+    ]
+  },
+  {
+    type: "function",
+    name: "get_my_dispute_ids",
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint64[]" }]
   },
   {
     type: "function",
