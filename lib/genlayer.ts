@@ -132,7 +132,7 @@ function parseGenLayerViewResult(data: `0x${string}` | undefined): unknown {
     }
   }
 
-  return null;
+  throw new Error(`GenLayer view decode mismatch. Raw response: ${data.slice(0, 66)}...`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
