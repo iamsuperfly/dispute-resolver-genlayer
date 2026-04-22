@@ -11,7 +11,8 @@ Production-ready frontend that talks directly to the deployed GenLayer dispute r
 
 Integrated methods:
 - `submit_dispute(claim: str, evidence: str)` (write)
-- `get_my_disputes_self()` (view; caller-context aware)
+- `get_my_disputes(user: str)` (view)
+- `get_my_dispute_ids(user: str)` (view)
 - `get_latest_dispute()` (view)
 - `get_dispute(dispute_id: u64)` (view)
 
@@ -26,13 +27,18 @@ Integrated methods:
   - transaction lifecycle feedback (pending hash / confirmation / errors)
 - Resolution display through dispute lookup (`get_dispute`).
 - Latest dispute panel (`get_latest_dispute`).
-- Personal dashboard (`get_my_disputes_self`) that passes connected account context.
+- Personal dashboard (`get_my_disputes` + `get_my_dispute_ids`) that loads connected account context on demand.
 - Robust loading, empty, and error states across reads/writes.
 
-## ABI note
+## Read decoding note
 
-The Solidity-style ABI was inferred from the GenLayer contract signatures and return shapes. Tuple outputs map to dispute fields:
-`id`, `submitter`, `claim`, `evidence`, `verdict`, `reason`.
+GenLayer Python contract view methods return dict/list JSON payloads instead of Solidity tuples.
+
+The frontend now performs raw `eth_call` requests and parses GenLayer JSON responses, avoiding viem tuple decoding for:
+- `get_latest_dispute`
+- `get_my_disputes`
+- `get_my_dispute_ids`
+- `get_dispute`
 
 ## Local run
 

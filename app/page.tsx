@@ -1,18 +1,27 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   useAccount,
   useChainId,
   useConnect,
   useDisconnect,
-  useReadContract,
+  usePublicClient,
   useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract
 } from "wagmi";
 
-import { CONTRACT_ADDRESS, disputeResolverAbi, genlayerChain, toDisputeArray, toDisputeTuple } from "@/lib/genlayer";
+import {
+  callGenLayerView,
+  CONTRACT_ADDRESS,
+  disputeResolverWriteAbi,
+  genlayerChain,
+  toDisputeArray,
+  toDisputeIdArray,
+  toDisputeTuple
+} from "@/lib/genlayer";
 
 const MAX_CHARS = 800;
 
@@ -32,7 +41,8 @@ function formatWriteError(error: unknown) {
 export default function HomePage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const { connect, connectors, isPending: isConnecting } = useConnect();
+  const publicClient = usePublicClient({ chainId: genlayerChain.id });
+  const { connectAsync, connectors, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain, switchChainAsync, isPending: isSwitching } = useSwitchChain();
 
@@ -46,6 +56,8 @@ export default function HomePage() {
   const [lookupId, setLookupId] = useState("");
   const [submittedLookupId, setSubmittedLookupId] = useState<bigint | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+
+  const enforcementKeyRef = useRef<string | null>(null);
 
   const {
     writeContract,
@@ -62,62 +74,70 @@ export default function HomePage() {
     }
   });
 
-  const latestDisputeQuery = useReadContract({
-    abi: disputeResolverAbi,
-    address: CONTRACT_ADDRESS,
-    functionName: "get_latest_dispute",
-    chainId: genlayerChain.id,
-    query: {
-      refetchInterval: 12_000
+  async function loadLatestDispute() {
+    if (!publicClient) {
+      throw new Error("RPC client not ready.");
     }
+
+    return callGenLayerView(publicClient, "get_latest_dispute");
+  }
+
+  async function loadMyDisputes() {
+    if (!publicClient || !address) {
+      throw new Error("Connect your wallet first.");
+    }
+
+    return callGenLayerView(publicClient, "get_my_disputes", [address]);
+  }
+
+  async function loadMyDisputeIds() {
+    if (!publicClient || !address) {
+      throw new Error("Connect your wallet first.");
+    }
+
+    return callGenLayerView(publicClient, "get_my_dispute_ids", [address]);
+  }
+
+  async function loadDisputeById() {
+    if (!publicClient || submittedLookupId === null) {
+      throw new Error("Provide a dispute ID first.");
+    }
+
+    return callGenLayerView(publicClient, "get_dispute", [submittedLookupId]);
+  }
+
+  const latestDisputeQuery = useQuery({
+    queryKey: ["latest-dispute"],
+    queryFn: loadLatestDispute,
+    enabled: false
   });
 
-  const myDisputesQuery = useReadContract({
-    abi: disputeResolverAbi,
-    address: CONTRACT_ADDRESS,
-    functionName: "get_my_disputes",
-    args: address ? [address] : undefined,
-    chainId: genlayerChain.id,
-    query: {
-      enabled: isConnected && !wrongNetwork && !!address,
-      refetchInterval: 15_000
-    }
+  const myDisputesQuery = useQuery({
+    queryKey: ["my-disputes", address],
+    queryFn: loadMyDisputes,
+    enabled: false
   });
 
-  const myDisputeIdsQuery = useReadContract({
-    abi: disputeResolverAbi,
-    address: CONTRACT_ADDRESS,
-    functionName: "get_my_dispute_ids",
-    args: address ? [address] : undefined,
-    chainId: genlayerChain.id,
-    query: {
-      enabled: isConnected && !wrongNetwork && !!address,
-      refetchInterval: 15_000
-    }
+  const myDisputeIdsQuery = useQuery({
+    queryKey: ["my-dispute-ids", address],
+    queryFn: loadMyDisputeIds,
+    enabled: false
   });
 
-  const lookupDisputeQuery = useReadContract({
-    abi: disputeResolverAbi,
-    address: CONTRACT_ADDRESS,
-    functionName: "get_dispute",
-    args: submittedLookupId ? [submittedLookupId] : undefined,
-    chainId: genlayerChain.id,
-    query: {
-      enabled: submittedLookupId !== null
-    }
+  const lookupDisputeQuery = useQuery({
+    queryKey: ["dispute", submittedLookupId?.toString()],
+    queryFn: loadDisputeById,
+    enabled: false
   });
 
   const latestDispute = useMemo(() => toDisputeTuple(latestDisputeQuery.data), [latestDisputeQuery.data]);
   const myDisputes = useMemo(() => toDisputeArray(myDisputesQuery.data), [myDisputesQuery.data]);
-  const myDisputeIds = useMemo(
-    () => (Array.isArray(myDisputeIdsQuery.data) ? myDisputeIdsQuery.data.filter((id): id is bigint => typeof id === "bigint") : []),
-    [myDisputeIdsQuery.data]
-  );
+  const myDisputeIds = useMemo(() => toDisputeIdArray(myDisputeIdsQuery.data), [myDisputeIdsQuery.data]);
   const lookedUpDispute = useMemo(() => toDisputeTuple(lookupDisputeQuery.data), [lookupDisputeQuery.data]);
 
   const canSubmit = isConnected && !wrongNetwork && !isSubmitting && !txReceipt.isLoading;
 
-  async function ensureGenlayerNetwork() {
+  const ensureGenlayerNetwork = useCallback(async () => {
     if (!isConnected) {
       throw new Error("Connect your wallet first.");
     }
@@ -167,6 +187,36 @@ export default function HomePage() {
         params: [{ chainId: `0x${genlayerChain.id.toString(16)}` }]
       });
     }
+  }, [chainId, isConnected, switchChain, switchChainAsync]);
+
+  useEffect(() => {
+    if (!isConnected || !wrongNetwork || !address) {
+      enforcementKeyRef.current = null;
+      return;
+    }
+
+    const key = `${address}-${chainId}`;
+    if (enforcementKeyRef.current === key) {
+      return;
+    }
+
+    enforcementKeyRef.current = key;
+    setNetworkError(null);
+    ensureGenlayerNetwork().catch((error) => {
+      setNetworkError(formatWriteError(error));
+    });
+  }, [address, chainId, ensureGenlayerNetwork, isConnected, wrongNetwork]);
+
+  async function onConnect() {
+    setNetworkError(null);
+
+    const connector = connectors[0];
+    if (!connector) {
+      setNetworkError("No injected connector available.");
+      return;
+    }
+
+    await connectAsync({ connector });
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -195,7 +245,7 @@ export default function HomePage() {
     ensureGenlayerNetwork()
       .then(() => {
         writeContract({
-          abi: disputeResolverAbi,
+          abi: disputeResolverWriteAbi,
           address: CONTRACT_ADDRESS,
           functionName: "submit_dispute",
           args: [trimmedClaim, trimmedEvidence],
@@ -226,6 +276,17 @@ export default function HomePage() {
     }
 
     setSubmittedLookupId(BigInt(parsed));
+    void lookupDisputeQuery.refetch();
+  }
+
+  async function refreshDashboard() {
+    if (!isConnected || wrongNetwork) {
+      setLookupError(null);
+      setNetworkError("Connect on GenLayer Studio to load account reads.");
+      return;
+    }
+
+    await Promise.all([myDisputesQuery.refetch(), myDisputeIdsQuery.refetch()]);
   }
 
   return (
@@ -234,19 +295,13 @@ export default function HomePage() {
         <h1>GenLayer AI Dispute Resolver</h1>
         <p>Contract: {CONTRACT_ADDRESS}</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <span className="badge">Chain ID {genlayerChain.id}</span>
+          <span className="badge">Target Chain ID {genlayerChain.id}</span>
+          <span className="badge">Connected Chain ID {isConnected ? chainId : "-"}</span>
           <span className="badge">RPC: {genlayerChain.rpcUrls.default.http[0]}</span>
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {!isConnected ? (
-            <button
-              onClick={() => {
-                const connector = connectors[0];
-                if (connector) connect({ connector });
-              }}
-              disabled={isConnecting || connectors.length === 0}
-              type="button"
-            >
+            <button onClick={() => void onConnect()} disabled={isConnecting || connectors.length === 0} type="button">
               {isConnecting ? "Connecting..." : "Connect MetaMask"}
             </button>
           ) : (
@@ -308,8 +363,13 @@ export default function HomePage() {
         {isConnected && wrongNetwork && <p className="error">You must switch to Chain ID {genlayerChain.id} before submitting.</p>}
         {formError && <p className="error">{formError}</p>}
         {writeError && <p className="error">{formatWriteError(writeError)}</p>}
+        <p>Write status: {txReceipt.isSuccess ? "success" : txReceipt.isError ? "failed" : txReceipt.isLoading ? "pending" : "idle"}</p>
         {txHash && <p>Transaction hash: {txHash}</p>}
-        {txReceipt.isSuccess && <p>Transaction confirmed in block {txReceipt.data.blockNumber.toString()}.</p>}
+        {txReceipt.isSuccess && (
+          <p>
+            Receipt confirmed at block {txReceipt.data.blockNumber.toString()} with {txReceipt.data.logs.length} logs for contract {CONTRACT_ADDRESS}.
+          </p>
+        )}
         {txReceipt.isError && <p className="error">Confirmation failed: {txReceipt.error?.message}</p>}
       </section>
 
@@ -327,7 +387,7 @@ export default function HomePage() {
         </form>
         {lookupError && <p className="error">{lookupError}</p>}
         {!submittedLookupId && <p>Enter a positive dispute ID, then click Load Dispute.</p>}
-        {lookupDisputeQuery.isLoading && <p>Loading dispute...</p>}
+        {lookupDisputeQuery.isFetching && <p>Loading dispute...</p>}
         {submittedLookupId && lookupDisputeQuery.error && <p className="error">{lookupDisputeQuery.error.message}</p>}
         {lookedUpDispute && (
           <DisputeView
@@ -343,9 +403,12 @@ export default function HomePage() {
 
       <section className="card">
         <h2>Latest Dispute (get_latest_dispute)</h2>
-        {latestDisputeQuery.isLoading && <p>Loading latest dispute...</p>}
+        <button onClick={() => void latestDisputeQuery.refetch()} type="button" style={{ width: "fit-content" }}>
+          Refresh Latest Dispute
+        </button>
+        {latestDisputeQuery.isFetching && <p>Loading latest dispute...</p>}
         {latestDisputeQuery.error && <p className="error">{latestDisputeQuery.error.message}</p>}
-        {!latestDisputeQuery.isLoading && !latestDispute && <p>No disputes yet.</p>}
+        {latestDisputeQuery.isFetched && !latestDispute && <p>No disputes yet.</p>}
         {latestDispute && (
           <DisputeView
             id={latestDispute.id.toString()}
@@ -362,15 +425,14 @@ export default function HomePage() {
         <h2>My Dashboard (address-based reads)</h2>
         {!isConnected && <p>Connect wallet to load your personal disputes.</p>}
         {isConnected && wrongNetwork && <p className="error">Switch network to load your dashboard.</p>}
-        {myDisputesQuery.isLoading && <p>Loading your disputes...</p>}
+        <button onClick={() => void refreshDashboard()} type="button" disabled={!isConnected || wrongNetwork} style={{ width: "fit-content" }}>
+          Load My Disputes
+        </button>
+        {myDisputesQuery.isFetching && <p>Loading your disputes...</p>}
         {myDisputesQuery.error && <p className="error">{myDisputesQuery.error.message}</p>}
         {myDisputeIdsQuery.error && <p className="error">{myDisputeIdsQuery.error.message}</p>}
-        {isConnected && !wrongNetwork && myDisputeIds.length > 0 && (
-          <p>Your dispute IDs: {myDisputeIds.map((id) => id.toString()).join(", ")}</p>
-        )}
-        {isConnected && !wrongNetwork && !myDisputesQuery.isLoading && myDisputes.length === 0 && (
-          <p>You have not submitted disputes yet.</p>
-        )}
+        {isConnected && !wrongNetwork && myDisputeIds.length > 0 && <p>Your dispute IDs: {myDisputeIds.map((id) => id.toString()).join(", ")}</p>}
+        {isConnected && !wrongNetwork && myDisputesQuery.isFetched && myDisputes.length === 0 && <p>You have not submitted disputes yet.</p>}
         <div className="grid">
           {myDisputes.map((dispute) => (
             <DisputeView
