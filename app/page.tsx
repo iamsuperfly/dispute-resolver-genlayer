@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { type Hash } from "viem";
+import { TransactionStatus, type TransactionHash } from "genlayer-js/types";
 
 import { useWallet } from "@/app/wallet-provider";
 import { CONTRACT_ADDRESS, formatError, GENLAYER_CHAIN, genlayerClient, type Dispute, type TxStatus } from "@/lib/genlayer";
@@ -37,15 +37,15 @@ export default function HomePage() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
 
-  async function waitForFinalizedStatus(hash: Hash) {
+  async function waitForFinalizedStatus(hash: TransactionHash) {
     setTxStatus("submitted");
     setTxStatusMessage("Submitted. Waiting for ACCEPTED status...");
 
-    await genlayerClient.waitForTransaction(hash, "ACCEPTED");
+    await genlayerClient.waitForTransaction(hash, TransactionStatus.ACCEPTED);
     setTxStatus("accepted");
     setTxStatusMessage("Transaction accepted. Waiting for FINALIZED status...");
 
-    await genlayerClient.waitForTransaction(hash, "FINALIZED");
+    await genlayerClient.waitForTransaction(hash, TransactionStatus.FINALIZED);
     setTxStatus("finalized");
     setTxStatusMessage("Transaction finalized on GenLayer Studio.");
   }

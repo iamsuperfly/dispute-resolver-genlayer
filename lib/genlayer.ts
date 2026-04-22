@@ -1,6 +1,7 @@
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
-import { type Address, type Hash } from "viem";
+import { TransactionStatus, type TransactionHash } from "genlayer-js/types";
+import { type Address } from "viem";
 
 export const GENLAYER_CHAIN = {
   id: 61999,
@@ -26,7 +27,7 @@ export type Dispute = {
 
 export type TxStatus = "idle" | "submitted" | "accepted" | "finalized" | "failed";
 
-type TxConsensusStatus = "ACCEPTED" | "FINALIZED";
+type TxConsensusStatus = TransactionStatus.ACCEPTED | TransactionStatus.FINALIZED;
 const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
 
 function normalizeBigInt(value: unknown): bigint {
@@ -67,12 +68,12 @@ function createGenLayerClient(account?: Address) {
   });
 }
 
-function toHash(value: string): Hash {
+function toTransactionHash(value: string): TransactionHash {
   if (!TX_HASH_REGEX.test(value)) {
     throw new Error("Unexpected transaction hash format returned from submit_dispute.");
   }
 
-  return value as Hash;
+  return value as TransactionHash;
 }
 
 export class GenlayerClient {
@@ -123,7 +124,7 @@ export class GenlayerClient {
     return result.map(normalizeBigInt);
   }
 
-  async submitDispute(_ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<Hash> {
+  async submitDispute(_ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<TransactionHash> {
     const txHash = await createGenLayerClient(from).writeContract({
       address: CONTRACT_ADDRESS,
       functionName: "submit_dispute",
@@ -131,10 +132,10 @@ export class GenlayerClient {
       value: 0n
     });
 
-    return toHash(txHash);
+    return toTransactionHash(txHash);
   }
 
-  async waitForTransaction(hash: Hash, status: TxConsensusStatus) {
+  async waitForTransaction(hash: TransactionHash, status: TxConsensusStatus) {
     return createGenLayerClient().waitForTransactionReceipt({
       hash,
       status,
