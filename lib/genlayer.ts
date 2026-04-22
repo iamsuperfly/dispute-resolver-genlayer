@@ -1,4 +1,4 @@
-import { encodeFunctionData, decodeFunctionResult, parseAbi, type Address, type Hex } from "viem";
+import { decodeAbiParameters, encodeFunctionData, hexToString, parseAbi, type Address, type Hex } from "viem";
 
 export const GENLAYER_CHAIN = {
   id: 61999,
@@ -15,10 +15,10 @@ export const CONTRACT_ADDRESS = "0xF38D2ED80643F8d8B47973F2789ef04F7259b86e" as 
 
 const ABI = parseAbi([
   "function submit_dispute(string claim, string evidence)",
-  "function get_latest_dispute() view returns ((uint64 id, string submitter, string claim, string evidence, string verdict, string reason))",
-  "function get_dispute(uint64 dispute_id) view returns ((uint64 id, string submitter, string claim, string evidence, string verdict, string reason))",
-  "function get_my_disputes(string user) view returns ((uint64 id, string submitter, string claim, string evidence, string verdict, string reason)[])",
-  "function get_my_dispute_ids(string user) view returns (uint64[])"
+  "function get_latest_dispute() view",
+  "function get_dispute(uint64 dispute_id) view",
+  "function get_my_disputes(string user) view",
+  "function get_my_dispute_ids(string user) view"
 ]);
 type ContractFunctionName = "get_latest_dispute" | "get_dispute" | "get_my_disputes" | "get_my_dispute_ids";
 
@@ -37,19 +37,74 @@ export type Dispute = {
 
 export type TxStatus = "idle" | "submitted" | "accepted" | "finalized" | "failed";
 
+function normalizeBigInt(value: unknown): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === "string" && value.trim()) {
+    try {
+      return BigInt(value.trim());
+    } catch {
+      return 0n;
+    }
+  }
+  return 0n;
+}
+
 function toDispute(value: unknown): Dispute {
-  if (!Array.isArray(value)) {
+  if (typeof value !== "object" || value === null) {
     throw new Error("Unexpected dispute payload from contract.");
   }
 
+  const payload = value as Record<string, unknown>;
+
   return {
-    id: BigInt(value[0] as bigint | number | string),
-    submitter: String(value[1] ?? ""),
-    claim: String(value[2] ?? ""),
-    evidence: String(value[3] ?? ""),
-    verdict: String(value[4] ?? ""),
-    reason: String(value[5] ?? "")
+    id: normalizeBigInt(payload.id),
+    submitter: typeof payload.submitter === "string" ? payload.submitter : "",
+    claim: typeof payload.claim === "string" ? payload.claim : "",
+    evidence: typeof payload.evidence === "string" ? payload.evidence : "",
+    verdict: typeof payload.verdict === "string" ? payload.verdict : "",
+    reason: typeof payload.reason === "string" ? payload.reason : ""
   };
+}
+
+function parseJsonCandidate(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return JSON.parse(trimmed);
+  }
+
+  return null;
+}
+
+function parseGenLayerViewResult(data: Hex): unknown {
+  if (!data || data === "0x") return null;
+
+  const candidates: string[] = [];
+
+  try {
+    const [decoded] = decodeAbiParameters([{ type: "string" }], data);
+    candidates.push(decoded);
+  } catch {
+    // not abi-string encoded
+  }
+
+  try {
+    candidates.push(hexToString(data, { size: undefined }).replace(/\u0000/g, ""));
+  } catch {
+    // not utf8-hex encoded
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return parseJsonCandidate(candidate);
+    } catch {
+      // continue
+    }
+  }
+
+  throw new Error(`GenLayer view decode mismatch. Raw response: ${data.slice(0, 66)}...`);
 }
 
 export class GenlayerClient {
@@ -86,27 +141,29 @@ export class GenlayerClient {
   }
 
   async getLatestDispute(): Promise<Dispute | null> {
-    const result = await this.callRaw("get_latest_dispute");
-    if (result === "0x") return null;
-    return toDispute(decodeFunctionResult({ abi: ABI, functionName: "get_latest_dispute", data: result }));
+    const result = parseGenLayerViewResult(await this.callRaw("get_latest_dispute"));
+    if (!result || (typeof result === "object" && !Array.isArray(result) && Object.keys(result as Record<string, unknown>).length === 0)) {
+      return null;
+    }
+    return toDispute(result);
   }
 
   async getDispute(id: bigint): Promise<Dispute | null> {
-    const result = await this.callRaw("get_dispute", [id]);
-    if (result === "0x") return null;
-    return toDispute(decodeFunctionResult({ abi: ABI, functionName: "get_dispute", data: result }));
+    const result = parseGenLayerViewResult(await this.callRaw("get_dispute", [id]));
+    if (!result) return null;
+    return toDispute(result);
   }
 
   async getMyDisputes(address: Address): Promise<Dispute[]> {
-    const result = await this.callRaw("get_my_disputes", [address]);
-    const decoded = decodeFunctionResult({ abi: ABI, functionName: "get_my_disputes", data: result });
-    return (decoded as unknown[]).map((item) => toDispute(item));
+    const result = parseGenLayerViewResult(await this.callRaw("get_my_disputes", [address]));
+    if (!Array.isArray(result)) return [];
+    return result.map((item) => toDispute(item));
   }
 
   async getMyDisputeIds(address: Address): Promise<bigint[]> {
-    const result = await this.callRaw("get_my_dispute_ids", [address]);
-    const decoded = decodeFunctionResult({ abi: ABI, functionName: "get_my_dispute_ids", data: result });
-    return decoded as bigint[];
+    const result = parseGenLayerViewResult(await this.callRaw("get_my_dispute_ids", [address]));
+    if (!Array.isArray(result)) return [];
+    return result.map(normalizeBigInt);
   }
 
   async submitDispute(ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<Hex> {
