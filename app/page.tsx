@@ -34,15 +34,18 @@ export default function HomePage() {
   const chainId = useChainId();
   const { connect, connectors, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
-  const { switchChain, isPending: isSwitching } = useSwitchChain();
+  const { switchChain, switchChainAsync, isPending: isSwitching } = useSwitchChain();
 
   const wrongNetwork = isConnected && chainId !== genlayerChain.id;
 
   const [claim, setClaim] = useState("");
   const [evidence, setEvidence] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [networkError, setNetworkError] = useState<string | null>(null);
 
   const [lookupId, setLookupId] = useState("");
+  const [submittedLookupId, setSubmittedLookupId] = useState<bigint | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
 
   const {
     writeContract,
@@ -72,9 +75,21 @@ export default function HomePage() {
   const myDisputesQuery = useReadContract({
     abi: disputeResolverAbi,
     address: CONTRACT_ADDRESS,
-    functionName: "get_my_disputes_self",
+    functionName: "get_my_disputes",
+    args: address ? [address] : undefined,
     chainId: genlayerChain.id,
-    account: address,
+    query: {
+      enabled: isConnected && !wrongNetwork && !!address,
+      refetchInterval: 15_000
+    }
+  });
+
+  const myDisputeIdsQuery = useReadContract({
+    abi: disputeResolverAbi,
+    address: CONTRACT_ADDRESS,
+    functionName: "get_my_dispute_ids",
+    args: address ? [address] : undefined,
+    chainId: genlayerChain.id,
     query: {
       enabled: isConnected && !wrongNetwork && !!address,
       refetchInterval: 15_000
@@ -85,22 +100,79 @@ export default function HomePage() {
     abi: disputeResolverAbi,
     address: CONTRACT_ADDRESS,
     functionName: "get_dispute",
-    args: [lookupId ? BigInt(lookupId) : 0n],
+    args: submittedLookupId ? [submittedLookupId] : undefined,
     chainId: genlayerChain.id,
     query: {
-      enabled: !!lookupId && Number(lookupId) > 0
+      enabled: submittedLookupId !== null
     }
   });
 
   const latestDispute = useMemo(() => toDisputeTuple(latestDisputeQuery.data), [latestDisputeQuery.data]);
   const myDisputes = useMemo(() => toDisputeArray(myDisputesQuery.data), [myDisputesQuery.data]);
+  const myDisputeIds = useMemo(
+    () => (Array.isArray(myDisputeIdsQuery.data) ? myDisputeIdsQuery.data.filter((id): id is bigint => typeof id === "bigint") : []),
+    [myDisputeIdsQuery.data]
+  );
   const lookedUpDispute = useMemo(() => toDisputeTuple(lookupDisputeQuery.data), [lookupDisputeQuery.data]);
 
   const canSubmit = isConnected && !wrongNetwork && !isSubmitting && !txReceipt.isLoading;
 
+  async function ensureGenlayerNetwork() {
+    if (!isConnected) {
+      throw new Error("Connect your wallet first.");
+    }
+
+    if (chainId === genlayerChain.id) {
+      return;
+    }
+
+    try {
+      if (switchChainAsync) {
+        await switchChainAsync({ chainId: genlayerChain.id });
+      } else {
+        switchChain({ chainId: genlayerChain.id });
+      }
+      return;
+    } catch {
+      // fall back to provider RPC methods for wallets that require explicit add/switch flow
+    }
+
+    const ethereum = (window as Window & { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } })
+      .ethereum;
+
+    if (!ethereum) {
+      throw new Error("No injected wallet found. Open this app in MetaMask browser.");
+    }
+
+    try {
+      await ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: `0x${genlayerChain.id.toString(16)}` }]
+      });
+      return;
+    } catch {
+      await ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: `0x${genlayerChain.id.toString(16)}`,
+            chainName: genlayerChain.name,
+            nativeCurrency: genlayerChain.nativeCurrency,
+            rpcUrls: genlayerChain.rpcUrls.default.http
+          }
+        ]
+      });
+      await ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: `0x${genlayerChain.id.toString(16)}` }]
+      });
+    }
+  }
+
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    setNetworkError(null);
 
     const trimmedClaim = claim.trim();
     const trimmedEvidence = evidence.trim();
@@ -120,14 +192,40 @@ export default function HomePage() {
       return;
     }
 
-    writeContract({
-      abi: disputeResolverAbi,
-      address: CONTRACT_ADDRESS,
-      functionName: "submit_dispute",
-      args: [trimmedClaim, trimmedEvidence],
-      chainId: genlayerChain.id,
-      account: address
-    });
+    ensureGenlayerNetwork()
+      .then(() => {
+        writeContract({
+          abi: disputeResolverAbi,
+          address: CONTRACT_ADDRESS,
+          functionName: "submit_dispute",
+          args: [trimmedClaim, trimmedEvidence],
+          chainId: genlayerChain.id,
+          account: address
+        });
+      })
+      .catch((error) => {
+        setNetworkError(formatWriteError(error));
+      });
+  }
+
+  function onLookupSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLookupError(null);
+
+    const parsed = Number(lookupId);
+    if (!lookupId.trim()) {
+      setSubmittedLookupId(null);
+      setLookupError("Enter a dispute ID to search.");
+      return;
+    }
+
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      setSubmittedLookupId(null);
+      setLookupError("Dispute ID must be a positive integer.");
+      return;
+    }
+
+    setSubmittedLookupId(BigInt(parsed));
   }
 
   return (
@@ -161,12 +259,20 @@ export default function HomePage() {
           )}
 
           {wrongNetwork && (
-            <button onClick={() => switchChain({ chainId: genlayerChain.id })} disabled={isSwitching} type="button">
+            <button
+              onClick={() => {
+                setNetworkError(null);
+                ensureGenlayerNetwork().catch((error) => setNetworkError(formatWriteError(error)));
+              }}
+              disabled={isSwitching}
+              type="button"
+            >
               {isSwitching ? "Switching..." : "Switch to GenLayer"}
             </button>
           )}
         </div>
-        {wrongNetwork && <p className="error">Wrong network. Please switch MetaMask to Chain ID {genlayerChain.id}.</p>}
+        {wrongNetwork && <p className="error">Wrong network. Switch to GenLayer Studio (Chain ID {genlayerChain.id}).</p>}
+        {networkError && <p className="error">{networkError}</p>}
       </header>
 
       <section className="card">
@@ -199,6 +305,7 @@ export default function HomePage() {
           </button>
         </form>
         {!isConnected && <p>Connect your wallet to submit a real transaction.</p>}
+        {isConnected && wrongNetwork && <p className="error">You must switch to Chain ID {genlayerChain.id} before submitting.</p>}
         {formError && <p className="error">{formError}</p>}
         {writeError && <p className="error">{formatWriteError(writeError)}</p>}
         {txHash && <p>Transaction hash: {txHash}</p>}
@@ -208,7 +315,7 @@ export default function HomePage() {
 
       <section className="card">
         <h2>Resolution Lookup (get_dispute)</h2>
-        <div style={{ display: "flex", gap: 8 }}>
+        <form style={{ display: "flex", gap: 8 }} onSubmit={onLookupSubmit}>
           <input
             type="number"
             min={1}
@@ -216,9 +323,12 @@ export default function HomePage() {
             onChange={(event) => setLookupId(event.target.value)}
             placeholder="Dispute ID"
           />
-        </div>
+          <button type="submit">Load Dispute</button>
+        </form>
+        {lookupError && <p className="error">{lookupError}</p>}
+        {!submittedLookupId && <p>Enter a positive dispute ID, then click Load Dispute.</p>}
         {lookupDisputeQuery.isLoading && <p>Loading dispute...</p>}
-        {lookupDisputeQuery.error && <p className="error">{lookupDisputeQuery.error.message}</p>}
+        {submittedLookupId && lookupDisputeQuery.error && <p className="error">{lookupDisputeQuery.error.message}</p>}
         {lookedUpDispute && (
           <DisputeView
             id={lookedUpDispute.id.toString()}
@@ -249,11 +359,15 @@ export default function HomePage() {
       </section>
 
       <section className="card">
-        <h2>My Dashboard (get_my_disputes_self)</h2>
-        {!isConnected && <p>Connect wallet to load your personal disputes using caller context.</p>}
+        <h2>My Dashboard (address-based reads)</h2>
+        {!isConnected && <p>Connect wallet to load your personal disputes.</p>}
         {isConnected && wrongNetwork && <p className="error">Switch network to load your dashboard.</p>}
         {myDisputesQuery.isLoading && <p>Loading your disputes...</p>}
         {myDisputesQuery.error && <p className="error">{myDisputesQuery.error.message}</p>}
+        {myDisputeIdsQuery.error && <p className="error">{myDisputeIdsQuery.error.message}</p>}
+        {isConnected && !wrongNetwork && myDisputeIds.length > 0 && (
+          <p>Your dispute IDs: {myDisputeIds.map((id) => id.toString()).join(", ")}</p>
+        )}
         {isConnected && !wrongNetwork && !myDisputesQuery.isLoading && myDisputes.length === 0 && (
           <p>You have not submitted disputes yet.</p>
         )}
