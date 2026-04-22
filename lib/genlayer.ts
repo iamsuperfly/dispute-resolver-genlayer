@@ -27,6 +27,7 @@ export type Dispute = {
 export type TxStatus = "idle" | "submitted" | "accepted" | "finalized" | "failed";
 
 type TxConsensusStatus = "ACCEPTED" | "FINALIZED";
+const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
 
 function normalizeBigInt(value: unknown): bigint {
   if (typeof value === "bigint") return value;
@@ -64,6 +65,14 @@ function createGenLayerClient(account?: Address) {
     endpoint: GENLAYER_CHAIN.rpcUrl,
     ...(account ? { account } : {})
   });
+}
+
+function toHash(value: string): Hash {
+  if (!TX_HASH_REGEX.test(value)) {
+    throw new Error("Unexpected transaction hash format returned from submit_dispute.");
+  }
+
+  return value as Hash;
 }
 
 export class GenlayerClient {
@@ -122,7 +131,7 @@ export class GenlayerClient {
       value: 0n
     });
 
-    return txHash;
+    return toHash(txHash);
   }
 
   async waitForTransaction(hash: Hash, status: TxConsensusStatus) {
