@@ -1,4 +1,4 @@
-# GenLayer Dispute Resolver Frontend (Next.js + wagmi + viem)
+# GenLayer Dispute Resolver Frontend (Next.js + official GenLayerJS SDK)
 
 Production-ready frontend that talks directly to the deployed GenLayer dispute resolver contract with real wallet interactions (MetaMask), no mocks.
 
@@ -30,15 +30,14 @@ Integrated methods:
 - Personal dashboard (`get_my_disputes` + `get_my_dispute_ids`) that loads connected account context on demand.
 - Robust loading, empty, and error states across reads/writes.
 
-## Read decoding note
+## SDK integration note
 
-GenLayer Python contract view methods return dict/list JSON payloads instead of Solidity tuples.
+This frontend uses the official `genlayer-js` SDK for contract interaction:
+- `readContract` for read-only methods (`eth_call`)
+- `writeContract` for state-changing methods (`eth_sendTransaction`)
+- `waitForTransactionReceipt` for ACCEPTED/FINALIZED status tracking
 
-The frontend now performs raw `eth_call` requests and parses GenLayer JSON responses, avoiding viem tuple decoding for:
-- `get_latest_dispute`
-- `get_my_disputes`
-- `get_my_dispute_ids`
-- `get_dispute`
+The app keeps lightweight response normalization for the dispute UI model, but no longer relies on custom raw RPC JSON parsing hacks.
 
 ## Local run
 

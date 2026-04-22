@@ -1,4 +1,6 @@
-import { decodeAbiParameters, encodeFunctionData, hexToString, parseAbi, type Address, type Hex } from "viem";
+import { createClient } from "genlayer-js";
+import { studionet } from "genlayer-js/chains";
+import { type Address, type Hex } from "viem";
 
 export const GENLAYER_CHAIN = {
   id: 61999,
@@ -13,19 +15,6 @@ export const GENLAYER_CHAIN = {
 
 export const CONTRACT_ADDRESS = "0xF38D2ED80643F8d8B47973F2789ef04F7259b86e" as Address;
 
-const ABI = parseAbi([
-  "function submit_dispute(string claim, string evidence)",
-  "function get_latest_dispute() view",
-  "function get_dispute(uint64 dispute_id) view",
-  "function get_my_disputes(string user) view",
-  "function get_my_dispute_ids(string user) view"
-]);
-type ContractFunctionName = "get_latest_dispute" | "get_dispute" | "get_my_disputes" | "get_my_dispute_ids";
-
-type RpcRequest = { jsonrpc: "2.0"; id: number; method: string; params?: unknown[] };
-
-type RpcResult<T> = { jsonrpc: "2.0"; id: number; result?: T; error?: { code: number; message: string } };
-
 export type Dispute = {
   id: bigint;
   submitter: string;
@@ -36,6 +25,8 @@ export type Dispute = {
 };
 
 export type TxStatus = "idle" | "submitted" | "accepted" | "finalized" | "failed";
+
+type TxConsensusStatus = "ACCEPTED" | "FINALIZED";
 
 function normalizeBigInt(value: unknown): bigint {
   if (typeof value === "bigint") return value;
@@ -67,129 +58,80 @@ function toDispute(value: unknown): Dispute {
   };
 }
 
-function parseJsonCandidate(raw: string): unknown {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return JSON.parse(trimmed);
-  }
-
-  return null;
-}
-
-function parseGenLayerViewResult(data: Hex): unknown {
-  if (!data || data === "0x") return null;
-
-  const candidates: string[] = [];
-
-  try {
-    const [decoded] = decodeAbiParameters([{ type: "string" }], data);
-    candidates.push(decoded);
-  } catch {
-    // not abi-string encoded
-  }
-
-  try {
-    candidates.push(hexToString(data, { size: undefined }).replace(/\u0000/g, ""));
-  } catch {
-    // not utf8-hex encoded
-  }
-
-  for (const candidate of candidates) {
-    try {
-      return parseJsonCandidate(candidate);
-    } catch {
-      // continue
-    }
-  }
-
-  throw new Error(`GenLayer view decode mismatch. Raw response: ${data.slice(0, 66)}...`);
+function createGenLayerClient(account?: Address) {
+  return createClient({
+    chain: studionet,
+    endpoint: GENLAYER_CHAIN.rpcUrl,
+    ...(account ? { account } : {})
+  });
 }
 
 export class GenlayerClient {
-  constructor(private readonly endpoint: string) {}
-
-  private async rpc<T>(method: string, params: unknown[] = []): Promise<T> {
-    const body: RpcRequest = { jsonrpc: "2.0", id: Date.now(), method, params };
-    const response = await fetch(this.endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+  async getLatestDispute(): Promise<Dispute | null> {
+    const result = await createGenLayerClient().readContract({
+      address: CONTRACT_ADDRESS,
+      functionName: "get_latest_dispute",
+      args: []
     });
 
-    if (!response.ok) {
-      throw new Error(`RPC ${method} failed with HTTP ${response.status}.`);
-    }
-
-    const json = (await response.json()) as RpcResult<T>;
-    if (json.error) {
-      throw new Error(`${method}: ${json.error.message}`);
-    }
-
-    if (json.result === undefined) {
-      throw new Error(`${method}: empty result.`);
-    }
-
-    return json.result;
-  }
-
-  private async callRaw(functionName: ContractFunctionName, args: unknown[] = []): Promise<Hex> {
-    const data = encodeFunctionData({ abi: ABI, functionName, args: args as never });
-    const result = await this.rpc<Hex>("eth_call", [{ to: CONTRACT_ADDRESS, data }, "latest"]);
-    return result;
-  }
-
-  async getLatestDispute(): Promise<Dispute | null> {
-    const result = parseGenLayerViewResult(await this.callRaw("get_latest_dispute"));
     if (!result || (typeof result === "object" && !Array.isArray(result) && Object.keys(result as Record<string, unknown>).length === 0)) {
       return null;
     }
+
     return toDispute(result);
   }
 
   async getDispute(id: bigint): Promise<Dispute | null> {
-    const result = parseGenLayerViewResult(await this.callRaw("get_dispute", [id]));
+    const result = await createGenLayerClient().readContract({
+      address: CONTRACT_ADDRESS,
+      functionName: "get_dispute",
+      args: [id]
+    });
+
     if (!result) return null;
     return toDispute(result);
   }
 
   async getMyDisputes(address: Address): Promise<Dispute[]> {
-    const result = parseGenLayerViewResult(await this.callRaw("get_my_disputes", [address]));
+    const result = await createGenLayerClient(address).readContract({
+      address: CONTRACT_ADDRESS,
+      functionName: "get_my_disputes",
+      args: [address]
+    });
+
     if (!Array.isArray(result)) return [];
     return result.map((item) => toDispute(item));
   }
 
   async getMyDisputeIds(address: Address): Promise<bigint[]> {
-    const result = parseGenLayerViewResult(await this.callRaw("get_my_dispute_ids", [address]));
+    const result = await createGenLayerClient(address).readContract({
+      address: CONTRACT_ADDRESS,
+      functionName: "get_my_dispute_ids",
+      args: [address]
+    });
+
     if (!Array.isArray(result)) return [];
     return result.map(normalizeBigInt);
   }
 
-  async submitDispute(ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<Hex> {
-    const data = encodeFunctionData({
-      abi: ABI,
+  async submitDispute(_ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<Hex> {
+    const txHash = await createGenLayerClient(from).writeContract({
+      address: CONTRACT_ADDRESS,
       functionName: "submit_dispute",
-      args: [claim, evidence]
+      args: [claim, evidence],
+      value: 0n
     });
 
-    const txHash = (await ethereum.request({
-      method: "eth_sendTransaction",
-      params: [
-        {
-          from,
-          to: CONTRACT_ADDRESS,
-          data,
-          value: "0x0"
-        }
-      ]
-    })) as Hex;
-
-    return txHash;
+    return txHash as Hex;
   }
 
-  async getTransactionReceipt(hash: Hex) {
-    return this.rpc<Record<string, unknown> | null>("eth_getTransactionReceipt", [hash]);
+  async waitForTransaction(hash: Hex, status: TxConsensusStatus) {
+    return createGenLayerClient().waitForTransactionReceipt({
+      hash,
+      status,
+      retries: 60,
+      interval: 2000
+    });
   }
 }
 
@@ -206,4 +148,4 @@ export function formatError(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export const genlayerClient = new GenlayerClient(GENLAYER_CHAIN.rpcUrl);
+export const genlayerClient = new GenlayerClient();

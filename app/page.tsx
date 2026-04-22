@@ -38,32 +38,15 @@ export default function HomePage() {
 
   async function waitForFinalizedStatus(hash: `0x${string}`) {
     setTxStatus("submitted");
-    setTxStatusMessage("Submitted. Waiting for receipt...");
+    setTxStatusMessage("Submitted. Waiting for ACCEPTED status...");
 
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const receipt = await genlayerClient.getTransactionReceipt(hash);
-      if (receipt) {
-        setTxStatus("accepted");
-        setTxStatusMessage("Receipt accepted. Waiting for finalized status...");
+    await genlayerClient.waitForTransaction(hash, "ACCEPTED");
+    setTxStatus("accepted");
+    setTxStatusMessage("Transaction accepted. Waiting for FINALIZED status...");
 
-        const status = receipt.status;
-        if (typeof status === "string" && status === "0x1") {
-          setTxStatus("finalized");
-          setTxStatusMessage("Transaction finalized on GenLayer Studio.");
-          return;
-        }
-
-        if (typeof status === "string" && status === "0x0") {
-          setTxStatus("failed");
-          setTxStatusMessage("Transaction receipt returned failed status.");
-          return;
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-
-    setTxStatusMessage("Receipt not finalized yet. Check Studio explorer with tx hash.");
+    await genlayerClient.waitForTransaction(hash, "FINALIZED");
+    setTxStatus("finalized");
+    setTxStatusMessage("Transaction finalized on GenLayer Studio.");
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
