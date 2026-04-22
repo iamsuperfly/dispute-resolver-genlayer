@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { type Hash } from "viem";
 
 import { useWallet } from "@/app/wallet-provider";
 import { CONTRACT_ADDRESS, formatError, GENLAYER_CHAIN, genlayerClient, type Dispute, type TxStatus } from "@/lib/genlayer";
@@ -36,7 +37,7 @@ export default function HomePage() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
 
-  async function waitForFinalizedStatus(hash: `0x${string}`) {
+  async function waitForFinalizedStatus(hash: Hash) {
     setTxStatus("submitted");
     setTxStatusMessage("Submitted. Waiting for ACCEPTED status...");
 
