@@ -1,17 +1,9 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactNode, useState } from "react";
-import { WagmiProvider } from "wagmi";
+import { ReactNode } from "react";
 
-import { wagmiConfig } from "@/lib/genlayer";
+import { WalletProvider } from "@/app/wallet-provider";
 
 export default function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-
-  return (
-    <WagmiProvider config={wagmiConfig}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    </WagmiProvider>
-  );
+  return <WalletProvider>{children}</WalletProvider>;
 }

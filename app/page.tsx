@@ -1,29 +1,9 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  useAccount,
-  useChainId,
-  useConnect,
-  useDisconnect,
-  usePublicClient,
-  useSwitchChain,
-  useWaitForTransactionReceipt,
-  useWalletClient,
-  useWriteContract
-} from "wagmi";
-import { encodeFunctionData } from "viem";
+import { FormEvent, useState } from "react";
 
-import {
-  callGenLayerView,
-  CONTRACT_ADDRESS,
-  disputeResolverWriteAbi,
-  genlayerChain,
-  toDisputeArray,
-  toDisputeIdArray,
-  toDisputeTuple
-} from "@/lib/genlayer";
+import { useWallet } from "@/app/wallet-provider";
+import { CONTRACT_ADDRESS, formatError, GENLAYER_CHAIN, genlayerClient, type Dispute, type TxStatus } from "@/lib/genlayer";
 
 const MAX_CHARS = 800;
 
@@ -31,286 +11,162 @@ function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function formatWriteError(error: unknown) {
-  if (typeof error !== "object" || !error) {
-    return "Transaction failed.";
-  }
-
-  const candidate = error as { shortMessage?: string; message?: string };
-  return candidate.shortMessage || candidate.message || "Transaction failed.";
-}
-
 export default function HomePage() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const publicClient = usePublicClient({ chainId: genlayerChain.id });
-  const { data: walletClient } = useWalletClient();
-  const { connectAsync, connectors, isPending: isConnecting } = useConnect();
-  const { disconnect } = useDisconnect();
-  const { switchChain, switchChainAsync, isPending: isSwitching } = useSwitchChain();
-
-  const wrongNetwork = isConnected && chainId !== genlayerChain.id;
-  const signerChainId = walletClient?.chain?.id ?? chainId;
-  const signerOnTargetChain = signerChainId === genlayerChain.id;
+  const { account, chainId, isConnected, isCorrectNetwork, connect, disconnect, ensureNetwork, provider, walletError } = useWallet();
 
   const [claim, setClaim] = useState("");
   const [evidence, setEvidence] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [networkError, setNetworkError] = useState<string | null>(null);
+
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txStatus, setTxStatus] = useState<TxStatus>("idle");
+  const [txStatusMessage, setTxStatusMessage] = useState<string>("No submission yet.");
+
+  const [latestDispute, setLatestDispute] = useState<Dispute | null>(null);
+  const [latestError, setLatestError] = useState<string | null>(null);
+  const [isLatestLoading, setIsLatestLoading] = useState(false);
 
   const [lookupId, setLookupId] = useState("");
-  const [submittedLookupId, setSubmittedLookupId] = useState<bigint | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookedUpDispute, setLookedUpDispute] = useState<Dispute | null>(null);
+  const [isLookupLoading, setIsLookupLoading] = useState(false);
 
-  const enforcementKeyRef = useRef<string | null>(null);
+  const [myDisputes, setMyDisputes] = useState<Dispute[]>([]);
+  const [myDisputeIds, setMyDisputeIds] = useState<bigint[]>([]);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(false);
 
-  const {
-    writeContract,
-    data: txHash,
-    error: writeError,
-    isPending: isSubmitting
-  } = useWriteContract();
+  async function waitForFinalizedStatus(hash: `0x${string}`) {
+    setTxStatus("submitted");
+    setTxStatusMessage("Submitted. Waiting for receipt...");
 
-  const txReceipt = useWaitForTransactionReceipt({
-    chainId: genlayerChain.id,
-    hash: txHash,
-    query: {
-      enabled: !!txHash
-    }
-  });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const receipt = await genlayerClient.getTransactionReceipt(hash);
+      if (receipt) {
+        setTxStatus("accepted");
+        setTxStatusMessage("Receipt accepted. Waiting for finalized status...");
 
-  async function loadLatestDispute() {
-    if (!publicClient) {
-      throw new Error("RPC client not ready.");
-    }
+        const status = receipt.status;
+        if (typeof status === "string" && status === "0x1") {
+          setTxStatus("finalized");
+          setTxStatusMessage("Transaction finalized on GenLayer Studio.");
+          return;
+        }
 
-    return callGenLayerView(publicClient, "get_latest_dispute");
-  }
-
-  async function loadMyDisputes() {
-    if (!publicClient || !address) {
-      throw new Error("Connect your wallet first.");
-    }
-
-    return callGenLayerView(publicClient, "get_my_disputes", [address]);
-  }
-
-  async function loadMyDisputeIds() {
-    if (!publicClient || !address) {
-      throw new Error("Connect your wallet first.");
-    }
-
-    return callGenLayerView(publicClient, "get_my_dispute_ids", [address]);
-  }
-
-  async function loadDisputeById() {
-    if (!publicClient || submittedLookupId === null) {
-      throw new Error("Provide a dispute ID first.");
-    }
-
-    return callGenLayerView(publicClient, "get_dispute", [submittedLookupId]);
-  }
-
-  const latestDisputeQuery = useQuery({
-    queryKey: ["latest-dispute"],
-    queryFn: loadLatestDispute,
-    enabled: false
-  });
-
-  const myDisputesQuery = useQuery({
-    queryKey: ["my-disputes", address],
-    queryFn: loadMyDisputes,
-    enabled: false
-  });
-
-  const myDisputeIdsQuery = useQuery({
-    queryKey: ["my-dispute-ids", address],
-    queryFn: loadMyDisputeIds,
-    enabled: false
-  });
-
-  const lookupDisputeQuery = useQuery({
-    queryKey: ["dispute", submittedLookupId?.toString()],
-    queryFn: loadDisputeById,
-    enabled: false
-  });
-
-  const latestDispute = useMemo(() => toDisputeTuple(latestDisputeQuery.data), [latestDisputeQuery.data]);
-  const myDisputes = useMemo(() => toDisputeArray(myDisputesQuery.data), [myDisputesQuery.data]);
-  const myDisputeIds = useMemo(() => toDisputeIdArray(myDisputeIdsQuery.data), [myDisputeIdsQuery.data]);
-  const lookedUpDispute = useMemo(() => toDisputeTuple(lookupDisputeQuery.data), [lookupDisputeQuery.data]);
-
-  const canSubmit = isConnected && signerOnTargetChain && !isSubmitting && !txReceipt.isLoading;
-
-  const ensureGenlayerNetwork = useCallback(async () => {
-    if (signerChainId === genlayerChain.id) {
-      return;
-    }
-
-    try {
-      if (switchChainAsync) {
-        await switchChainAsync({ chainId: genlayerChain.id });
-      } else {
-        switchChain({ chainId: genlayerChain.id });
+        if (typeof status === "string" && status === "0x0") {
+          setTxStatus("failed");
+          setTxStatusMessage("Transaction receipt returned failed status.");
+          return;
+        }
       }
-      return;
-    } catch {
-      // fall back to provider RPC methods for wallets that require explicit add/switch flow
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
-    const ethereum = (window as Window & { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } })
-      .ethereum;
-
-    if (!ethereum) {
-      throw new Error("No injected wallet found. Open this app in MetaMask browser.");
-    }
-
-    try {
-      await ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${genlayerChain.id.toString(16)}` }]
-      });
-      return;
-    } catch {
-      await ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: `0x${genlayerChain.id.toString(16)}`,
-            chainName: genlayerChain.name,
-            nativeCurrency: genlayerChain.nativeCurrency,
-            rpcUrls: genlayerChain.rpcUrls.default.http
-          }
-        ]
-      });
-      await ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${genlayerChain.id.toString(16)}` }]
-      });
-    }
-  }, [signerChainId, switchChain, switchChainAsync]);
-
-  useEffect(() => {
-    if (!isConnected || !wrongNetwork || !address) {
-      enforcementKeyRef.current = null;
-      return;
-    }
-
-    const key = `${address}-${chainId}`;
-    if (enforcementKeyRef.current === key) {
-      return;
-    }
-
-    enforcementKeyRef.current = key;
-    setNetworkError(null);
-    ensureGenlayerNetwork().catch((error) => {
-      setNetworkError(formatWriteError(error));
-    });
-  }, [address, chainId, ensureGenlayerNetwork, isConnected, wrongNetwork]);
-
-  async function onConnect() {
-    setNetworkError(null);
-
-    const connector = connectors[0];
-    if (!connector) {
-      setNetworkError("No injected connector available.");
-      return;
-    }
-
-    const connected = await connectAsync({ connector });
-    const connectedChainId = connected.chainId;
-    if (connectedChainId !== genlayerChain.id) {
-      try {
-        await ensureGenlayerNetwork();
-      } catch (error) {
-        setNetworkError(formatWriteError(error));
-      }
-    }
+    setTxStatusMessage("Receipt not finalized yet. Check Studio explorer with tx hash.");
   }
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
-    setNetworkError(null);
 
     const trimmedClaim = claim.trim();
     const trimmedEvidence = evidence.trim();
 
-    if (!address) {
-      setFormError("Connect your wallet before submitting.");
+    if (!account || !provider) {
+      setFormError("Connect MetaMask first.");
       return;
     }
 
     if (!trimmedClaim || !trimmedEvidence) {
-      setFormError("Claim and evidence are both required.");
+      setFormError("Claim and evidence are required.");
       return;
     }
 
     if (trimmedClaim.length > MAX_CHARS || trimmedEvidence.length > MAX_CHARS) {
-      setFormError(`Claim and evidence must be at most ${MAX_CHARS} characters each.`);
+      setFormError(`Claim and evidence must be <= ${MAX_CHARS} characters.`);
       return;
     }
 
-    if (!signerOnTargetChain) {
-      setNetworkError(`Wallet signer is on chain ${signerChainId}. Switch to ${genlayerChain.id} before submitting.`);
-      return;
-    }
+    try {
+      await ensureNetwork();
+      setTxStatus("submitted");
+      setTxStatusMessage("Prompting MetaMask for submit_dispute transaction...");
 
-    const calldata = encodeFunctionData({
-      abi: disputeResolverWriteAbi,
-      functionName: "submit_dispute",
-      args: [trimmedClaim, trimmedEvidence]
-    });
-    if (!calldata || calldata === "0x") {
-      setFormError("Failed to encode submit_dispute calldata.");
-      return;
-    }
+      const hash = await genlayerClient.submitDispute(provider, account, trimmedClaim, trimmedEvidence);
+      setTxHash(hash);
 
-    ensureGenlayerNetwork()
-      .then(() => {
-        writeContract({
-          abi: disputeResolverWriteAbi,
-          address: CONTRACT_ADDRESS,
-          functionName: "submit_dispute",
-          args: [trimmedClaim, trimmedEvidence],
-          chainId: genlayerChain.id,
-          account: address
-        });
-      })
-      .catch((error) => {
-        setNetworkError(formatWriteError(error));
-      });
+      await waitForFinalizedStatus(hash);
+    } catch (error) {
+      setTxStatus("failed");
+      setTxStatusMessage(formatError(error, "Failed to submit dispute."));
+    }
   }
 
-  function onLookupSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onLoadLatest() {
+    setLatestError(null);
+    setIsLatestLoading(true);
+
+    try {
+      const result = await genlayerClient.getLatestDispute();
+      setLatestDispute(result);
+    } catch (error) {
+      setLatestError(formatError(error, "Failed to load latest dispute."));
+    } finally {
+      setIsLatestLoading(false);
+    }
+  }
+
+  async function onLookupSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLookupError(null);
+    setLookedUpDispute(null);
 
-    const parsed = Number(lookupId);
     if (!lookupId.trim()) {
-      setSubmittedLookupId(null);
-      setLookupError("Enter a dispute ID to search.");
+      setLookupError("Enter a dispute ID.");
       return;
     }
 
+    const parsed = Number(lookupId);
     if (!Number.isInteger(parsed) || parsed <= 0) {
-      setSubmittedLookupId(null);
       setLookupError("Dispute ID must be a positive integer.");
       return;
     }
 
-    setSubmittedLookupId(BigInt(parsed));
-    void lookupDisputeQuery.refetch();
+    setIsLookupLoading(true);
+    try {
+      const result = await genlayerClient.getDispute(BigInt(parsed));
+      setLookedUpDispute(result);
+    } catch (error) {
+      setLookupError(formatError(error, "Failed to load dispute."));
+    } finally {
+      setIsLookupLoading(false);
+    }
   }
 
-  async function refreshDashboard() {
-    if (!isConnected || wrongNetwork) {
-      setLookupError(null);
-      setNetworkError("Connect on GenLayer Studio to load account reads.");
+  async function onLoadDashboard() {
+    setDashboardError(null);
+
+    if (!account) {
+      setDashboardError("Connect wallet first.");
       return;
     }
 
-    await Promise.all([myDisputesQuery.refetch(), myDisputeIdsQuery.refetch()]);
+    if (!isCorrectNetwork) {
+      setDashboardError(`Switch wallet to chain ${GENLAYER_CHAIN.id} first.`);
+      return;
+    }
+
+    setIsDashboardLoading(true);
+    try {
+      const [disputes, ids] = await Promise.all([genlayerClient.getMyDisputes(account), genlayerClient.getMyDisputeIds(account)]);
+      setMyDisputes(disputes);
+      setMyDisputeIds(ids);
+    } catch (error) {
+      setDashboardError(formatError(error, "Failed to load dashboard."));
+    } finally {
+      setIsDashboardLoading(false);
+    }
   }
 
   return (
@@ -319,40 +175,33 @@ export default function HomePage() {
         <h1>GenLayer AI Dispute Resolver</h1>
         <p>Contract: {CONTRACT_ADDRESS}</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <span className="badge">Target Chain ID {genlayerChain.id}</span>
-          <span className="badge">Provider Chain ID {isConnected ? chainId : "-"}</span>
-          <span className="badge">Signer Chain ID {isConnected ? signerChainId : "-"}</span>
-          <span className="badge">RPC: {genlayerChain.rpcUrls.default.http[0]}</span>
+          <span className="badge">Current wallet chain: {isConnected ? chainId : "-"}</span>
+          <span className="badge">Target chain: {GENLAYER_CHAIN.id}</span>
+          <span className="badge">RPC: {GENLAYER_CHAIN.rpcUrl}</span>
         </div>
-        <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+
+        <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           {!isConnected ? (
-            <button onClick={() => void onConnect()} disabled={isConnecting || connectors.length === 0} type="button">
-              {isConnecting ? "Connecting..." : "Connect MetaMask"}
+            <button onClick={() => void connect()} type="button">
+              Connect MetaMask
             </button>
           ) : (
             <>
-              <span>Connected as {shortAddress(address ?? "")}</span>
+              <span>Connected as {shortAddress(account ?? "")}</span>
               <button onClick={() => disconnect()} type="button">
                 Disconnect
               </button>
+              {!isCorrectNetwork && (
+                <button onClick={() => void ensureNetwork()} type="button">
+                  Switch to GenLayer
+                </button>
+              )}
             </>
           )}
-
-          {wrongNetwork && (
-            <button
-              onClick={() => {
-                setNetworkError(null);
-                ensureGenlayerNetwork().catch((error) => setNetworkError(formatWriteError(error)));
-              }}
-              disabled={isSwitching}
-              type="button"
-            >
-              {isSwitching ? "Switching..." : "Switch to GenLayer"}
-            </button>
-          )}
         </div>
-        {wrongNetwork && <p className="error">Wrong network. Switch to GenLayer Studio (Chain ID {genlayerChain.id}).</p>}
-        {networkError && <p className="error">{networkError}</p>}
+
+        {!isCorrectNetwork && isConnected && <p className="error">Wallet is on wrong network. Submissions are blocked.</p>}
+        {walletError && <p className="error">{walletError}</p>}
       </header>
 
       <section className="card">
@@ -360,117 +209,54 @@ export default function HomePage() {
         <form className="grid" onSubmit={onSubmit}>
           <div>
             <label htmlFor="claim">Claim ({claim.length}/{MAX_CHARS})</label>
-            <textarea
-              id="claim"
-              maxLength={MAX_CHARS}
-              value={claim}
-              onChange={(event) => setClaim(event.target.value)}
-              placeholder="Describe the claim"
-            />
+            <textarea id="claim" maxLength={MAX_CHARS} value={claim} onChange={(event) => setClaim(event.target.value)} />
           </div>
-
           <div>
             <label htmlFor="evidence">Evidence ({evidence.length}/{MAX_CHARS})</label>
-            <textarea
-              id="evidence"
-              maxLength={MAX_CHARS}
-              value={evidence}
-              onChange={(event) => setEvidence(event.target.value)}
-              placeholder="Provide evidence"
-            />
+            <textarea id="evidence" maxLength={MAX_CHARS} value={evidence} onChange={(event) => setEvidence(event.target.value)} />
           </div>
-
-          <button type="submit" disabled={!canSubmit}>
-            {isSubmitting || txReceipt.isLoading ? "Submitting..." : "Submit Dispute"}
+          <button type="submit" disabled={!isConnected || !isCorrectNetwork || txStatus === "submitted" || txStatus === "accepted"}>
+            {txStatus === "submitted" || txStatus === "accepted" ? "Submitting..." : "Submit Dispute"}
           </button>
         </form>
-        {!isConnected && <p>Connect your wallet to submit a real transaction.</p>}
-        {isConnected && !signerOnTargetChain && (
-          <p className="error">Signer mismatch. You must submit on Chain ID {genlayerChain.id}.</p>
-        )}
         {formError && <p className="error">{formError}</p>}
-        {writeError && <p className="error">{formatWriteError(writeError)}</p>}
-        <p>Write status: {txReceipt.isSuccess ? "success" : txReceipt.isError ? "failed" : txReceipt.isLoading ? "pending" : "idle"}</p>
-        {txHash && <p>Transaction hash: {txHash}</p>}
-        {txReceipt.isSuccess && (
-          <p>
-            Receipt confirmed at block {txReceipt.data.blockNumber.toString()} with {txReceipt.data.logs.length} logs for contract {CONTRACT_ADDRESS}.
-          </p>
-        )}
-        {txReceipt.isError && <p className="error">Confirmation failed: {txReceipt.error?.message}</p>}
+        <p>Tx status: {txStatus}</p>
+        <p>Tx detail: {txStatusMessage}</p>
+        {txHash && <p>Tx hash: {txHash}</p>}
       </section>
 
       <section className="card">
         <h2>Resolution Lookup (get_dispute)</h2>
         <form style={{ display: "flex", gap: 8 }} onSubmit={onLookupSubmit}>
-          <input
-            type="number"
-            min={1}
-            value={lookupId}
-            onChange={(event) => setLookupId(event.target.value)}
-            placeholder="Dispute ID"
-          />
+          <input type="number" min={1} value={lookupId} onChange={(event) => setLookupId(event.target.value)} placeholder="Dispute ID" />
           <button type="submit">Load Dispute</button>
         </form>
+        {isLookupLoading && <p>Loading dispute...</p>}
         {lookupError && <p className="error">{lookupError}</p>}
-        {!submittedLookupId && <p>Enter a positive dispute ID, then click Load Dispute.</p>}
-        {lookupDisputeQuery.isFetching && <p>Loading dispute...</p>}
-        {submittedLookupId && lookupDisputeQuery.error && <p className="error">{lookupDisputeQuery.error.message}</p>}
-        {lookedUpDispute && (
-          <DisputeView
-            id={lookedUpDispute.id.toString()}
-            submitter={lookedUpDispute.submitter}
-            claim={lookedUpDispute.claim}
-            evidence={lookedUpDispute.evidence}
-            verdict={lookedUpDispute.verdict}
-            reason={lookedUpDispute.reason}
-          />
-        )}
+        {lookedUpDispute && <DisputeView dispute={lookedUpDispute} />}
       </section>
 
       <section className="card">
         <h2>Latest Dispute (get_latest_dispute)</h2>
-        <button onClick={() => void latestDisputeQuery.refetch()} type="button" style={{ width: "fit-content" }}>
+        <button onClick={() => void onLoadLatest()} type="button" style={{ width: "fit-content" }}>
           Refresh Latest Dispute
         </button>
-        {latestDisputeQuery.isFetching && <p>Loading latest dispute...</p>}
-        {latestDisputeQuery.error && <p className="error">{latestDisputeQuery.error.message}</p>}
-        {latestDisputeQuery.isFetched && !latestDispute && <p>No disputes yet.</p>}
-        {latestDispute && (
-          <DisputeView
-            id={latestDispute.id.toString()}
-            submitter={latestDispute.submitter}
-            claim={latestDispute.claim}
-            evidence={latestDispute.evidence}
-            verdict={latestDispute.verdict}
-            reason={latestDispute.reason}
-          />
-        )}
+        {isLatestLoading && <p>Loading latest dispute...</p>}
+        {latestError && <p className="error">{latestError}</p>}
+        {!isLatestLoading && latestDispute && <DisputeView dispute={latestDispute} />}
       </section>
 
       <section className="card">
         <h2>My Dashboard (address-based reads)</h2>
-        {!isConnected && <p>Connect wallet to load your personal disputes.</p>}
-        {isConnected && wrongNetwork && <p className="error">Switch network to load your dashboard.</p>}
-        <button onClick={() => void refreshDashboard()} type="button" disabled={!isConnected || wrongNetwork} style={{ width: "fit-content" }}>
+        <button onClick={() => void onLoadDashboard()} type="button" style={{ width: "fit-content" }}>
           Load My Disputes
         </button>
-        {myDisputesQuery.isFetching && <p>Loading your disputes...</p>}
-        {myDisputesQuery.error && <p className="error">{myDisputesQuery.error.message}</p>}
-        {myDisputeIdsQuery.error && <p className="error">{myDisputeIdsQuery.error.message}</p>}
-        {isConnected && !wrongNetwork && myDisputeIds.length > 0 && <p>Your dispute IDs: {myDisputeIds.map((id) => id.toString()).join(", ")}</p>}
-        {isConnected && !wrongNetwork && myDisputesQuery.isFetched && myDisputes.length === 0 && <p>You have not submitted disputes yet.</p>}
+        {isDashboardLoading && <p>Loading your disputes...</p>}
+        {dashboardError && <p className="error">{dashboardError}</p>}
+        {myDisputeIds.length > 0 && <p>My dispute IDs: {myDisputeIds.map((id) => id.toString()).join(", ")}</p>}
         <div className="grid">
           {myDisputes.map((dispute) => (
-            <DisputeView
-              key={dispute.id.toString()}
-              id={dispute.id.toString()}
-              submitter={dispute.submitter}
-              claim={dispute.claim}
-              evidence={dispute.evidence}
-              verdict={dispute.verdict}
-              reason={dispute.reason}
-            />
+            <DisputeView key={dispute.id.toString()} dispute={dispute} />
           ))}
         </div>
       </section>
@@ -478,35 +264,26 @@ export default function HomePage() {
   );
 }
 
-type DisputeViewProps = {
-  id: string;
-  submitter: string;
-  claim: string;
-  evidence: string;
-  verdict: string;
-  reason: string;
-};
-
-function DisputeView({ id, submitter, claim, evidence, verdict, reason }: DisputeViewProps) {
+function DisputeView({ dispute }: { dispute: Dispute }) {
   return (
     <article style={{ border: "1px solid #263356", borderRadius: 12, padding: 12 }}>
       <p>
-        <strong>ID:</strong> {id}
+        <strong>ID:</strong> {dispute.id.toString()}
       </p>
       <p>
-        <strong>Submitter:</strong> {submitter}
+        <strong>Submitter:</strong> {dispute.submitter}
       </p>
       <p>
-        <strong>Claim:</strong> {claim}
+        <strong>Claim:</strong> {dispute.claim}
       </p>
       <p>
-        <strong>Evidence:</strong> {evidence}
+        <strong>Evidence:</strong> {dispute.evidence}
       </p>
       <p>
-        <strong>Verdict:</strong> {verdict || "pending"}
+        <strong>Verdict:</strong> {dispute.verdict || "pending"}
       </p>
       <p>
-        <strong>Reason:</strong> {reason || "No reason"}
+        <strong>Reason:</strong> {dispute.reason || "No reason"}
       </p>
     </article>
   );
