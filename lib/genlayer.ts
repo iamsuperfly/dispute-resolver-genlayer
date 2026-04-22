@@ -1,6 +1,6 @@
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
-import { type Address, type Hex } from "viem";
+import { type Address, type Hash } from "viem";
 
 export const GENLAYER_CHAIN = {
   id: 61999,
@@ -114,7 +114,7 @@ export class GenlayerClient {
     return result.map(normalizeBigInt);
   }
 
-  async submitDispute(_ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<Hex> {
+  async submitDispute(_ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<Hash> {
     const txHash = await createGenLayerClient(from).writeContract({
       address: CONTRACT_ADDRESS,
       functionName: "submit_dispute",
@@ -122,10 +122,10 @@ export class GenlayerClient {
       value: 0n
     });
 
-    return txHash as Hex;
+    return txHash;
   }
 
-  async waitForTransaction(hash: Hex, status: TxConsensusStatus) {
+  async waitForTransaction(hash: Hash, status: TxConsensusStatus) {
     return createGenLayerClient().waitForTransactionReceipt({
       hash,
       status,
