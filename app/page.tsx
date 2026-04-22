@@ -20,6 +20,15 @@ function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function formatWriteError(error: unknown) {
+  if (typeof error !== "object" || !error) {
+    return "Transaction failed.";
+  }
+
+  const candidate = error as { shortMessage?: string; message?: string };
+  return candidate.shortMessage || candidate.message || "Transaction failed.";
+}
+
 export default function HomePage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -191,7 +200,7 @@ export default function HomePage() {
         </form>
         {!isConnected && <p>Connect your wallet to submit a real transaction.</p>}
         {formError && <p className="error">{formError}</p>}
-        {writeError && <p className="error">{writeError.shortMessage || writeError.message}</p>}
+        {writeError && <p className="error">{formatWriteError(writeError)}</p>}
         {txHash && <p>Transaction hash: {txHash}</p>}
         {txReceipt.isSuccess && <p>Transaction confirmed in block {txReceipt.data.blockNumber.toString()}.</p>}
         {txReceipt.isError && <p className="error">Confirmation failed: {txReceipt.error?.message}</p>}

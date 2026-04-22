@@ -210,3 +210,7 @@ __marimo__/
 node_modules/
 .next/
 .npm/
+
+# Keep Next.js source library folder tracked.
+!/lib/
+!/lib/**
