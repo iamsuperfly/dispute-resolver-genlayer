@@ -25,7 +25,23 @@ function hexChainId(chainId: number) {
 
 function getProvider(): EthereumProvider | null {
   if (typeof window === "undefined") return null;
-  return (window as Window & { ethereum?: EthereumProvider }).ethereum ?? null;
+
+  const injected = (window as Window & { ethereum?: EthereumProvider & { providers?: Array<EthereumProvider & { isMetaMask?: boolean }>; isMetaMask?: boolean } })
+    .ethereum;
+
+  if (!injected) return null;
+
+  const providers = injected.providers;
+  if (Array.isArray(providers) && providers.length > 0) {
+    const metamaskProvider = providers.find((provider) => (provider as { isMetaMask?: boolean }).isMetaMask);
+    if (metamaskProvider) return metamaskProvider;
+  }
+
+  if ((injected as { isMetaMask?: boolean }).isMetaMask) {
+    return injected;
+  }
+
+  return injected;
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
