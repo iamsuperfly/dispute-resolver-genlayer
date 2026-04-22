@@ -10,8 +10,10 @@ import {
   usePublicClient,
   useSwitchChain,
   useWaitForTransactionReceipt,
+  useWalletClient,
   useWriteContract
 } from "wagmi";
+import { encodeFunctionData } from "viem";
 
 import {
   callGenLayerView,
@@ -42,11 +44,14 @@ export default function HomePage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient({ chainId: genlayerChain.id });
+  const { data: walletClient } = useWalletClient();
   const { connectAsync, connectors, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain, switchChainAsync, isPending: isSwitching } = useSwitchChain();
 
   const wrongNetwork = isConnected && chainId !== genlayerChain.id;
+  const signerChainId = walletClient?.chain?.id ?? chainId;
+  const signerOnTargetChain = signerChainId === genlayerChain.id;
 
   const [claim, setClaim] = useState("");
   const [evidence, setEvidence] = useState("");
@@ -135,14 +140,10 @@ export default function HomePage() {
   const myDisputeIds = useMemo(() => toDisputeIdArray(myDisputeIdsQuery.data), [myDisputeIdsQuery.data]);
   const lookedUpDispute = useMemo(() => toDisputeTuple(lookupDisputeQuery.data), [lookupDisputeQuery.data]);
 
-  const canSubmit = isConnected && !wrongNetwork && !isSubmitting && !txReceipt.isLoading;
+  const canSubmit = isConnected && signerOnTargetChain && !isSubmitting && !txReceipt.isLoading;
 
   const ensureGenlayerNetwork = useCallback(async () => {
-    if (!isConnected) {
-      throw new Error("Connect your wallet first.");
-    }
-
-    if (chainId === genlayerChain.id) {
+    if (signerChainId === genlayerChain.id) {
       return;
     }
 
@@ -187,7 +188,7 @@ export default function HomePage() {
         params: [{ chainId: `0x${genlayerChain.id.toString(16)}` }]
       });
     }
-  }, [chainId, isConnected, switchChain, switchChainAsync]);
+  }, [signerChainId, switchChain, switchChainAsync]);
 
   useEffect(() => {
     if (!isConnected || !wrongNetwork || !address) {
@@ -216,7 +217,15 @@ export default function HomePage() {
       return;
     }
 
-    await connectAsync({ connector });
+    const connected = await connectAsync({ connector });
+    const connectedChainId = connected.chainId;
+    if (connectedChainId !== genlayerChain.id) {
+      try {
+        await ensureGenlayerNetwork();
+      } catch (error) {
+        setNetworkError(formatWriteError(error));
+      }
+    }
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -239,6 +248,21 @@ export default function HomePage() {
 
     if (trimmedClaim.length > MAX_CHARS || trimmedEvidence.length > MAX_CHARS) {
       setFormError(`Claim and evidence must be at most ${MAX_CHARS} characters each.`);
+      return;
+    }
+
+    if (!signerOnTargetChain) {
+      setNetworkError(`Wallet signer is on chain ${signerChainId}. Switch to ${genlayerChain.id} before submitting.`);
+      return;
+    }
+
+    const calldata = encodeFunctionData({
+      abi: disputeResolverWriteAbi,
+      functionName: "submit_dispute",
+      args: [trimmedClaim, trimmedEvidence]
+    });
+    if (!calldata || calldata === "0x") {
+      setFormError("Failed to encode submit_dispute calldata.");
       return;
     }
 
@@ -296,7 +320,8 @@ export default function HomePage() {
         <p>Contract: {CONTRACT_ADDRESS}</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <span className="badge">Target Chain ID {genlayerChain.id}</span>
-          <span className="badge">Connected Chain ID {isConnected ? chainId : "-"}</span>
+          <span className="badge">Provider Chain ID {isConnected ? chainId : "-"}</span>
+          <span className="badge">Signer Chain ID {isConnected ? signerChainId : "-"}</span>
           <span className="badge">RPC: {genlayerChain.rpcUrls.default.http[0]}</span>
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -360,7 +385,9 @@ export default function HomePage() {
           </button>
         </form>
         {!isConnected && <p>Connect your wallet to submit a real transaction.</p>}
-        {isConnected && wrongNetwork && <p className="error">You must switch to Chain ID {genlayerChain.id} before submitting.</p>}
+        {isConnected && !signerOnTargetChain && (
+          <p className="error">Signer mismatch. You must submit on Chain ID {genlayerChain.id}.</p>
+        )}
         {formError && <p className="error">{formError}</p>}
         {writeError && <p className="error">{formatWriteError(writeError)}</p>}
         <p>Write status: {txReceipt.isSuccess ? "success" : txReceipt.isError ? "failed" : txReceipt.isLoading ? "pending" : "idle"}</p>
