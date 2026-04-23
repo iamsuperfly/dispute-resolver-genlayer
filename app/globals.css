@@ -159,6 +159,17 @@ textarea { min-height: 110px; resize: vertical; }
 .dispute-card p { margin: 6px 0; }
 
 .muted { color: var(--muted); }
+.status-message {
+  margin-top: 12px;
+  color: #d6dcf6;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  font-weight: 300;
+}
+.status-keyword {
+  color: var(--primary);
+  font-weight: 700;
+}
 .hash {
   margin-top: 8px;
   word-break: break-all;
@@ -170,18 +181,121 @@ textarea { min-height: 110px; resize: vertical; }
 .error { color: var(--error); margin: 0; }
 
 .footer {
-  margin-top: 6px;
+  margin-top: 14px;
+  border-top: 1px solid rgba(152, 162, 200, 0.24);
+  padding-top: 16px;
+  display: grid;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.footer-meta {
+  display: grid;
+  gap: 5px;
+}
+.footer-meta p {
+  margin: 0;
+}
+.footer-link {
+  color: #cad5ff;
+  text-decoration: none;
+}
+.footer-link:hover {
+  color: var(--primary-soft);
+}
+.hash-inline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.footer-network-button {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary-soft);
+  cursor: pointer;
+  text-align: left;
+}
+.footer-network-button:hover {
+  text-decoration: underline;
+}
+.footer-powered {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.8rem;
+  gap: 4px;
+  text-align: center;
 }
-.footer-brand { display: inline-flex; align-items: center; opacity: 0.88; }
+.footer-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.footer-mascot {
+  display: flex;
+  justify-content: center;
+}
+.built-by {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(18, 21, 38, 0.96);
+  border: 1px solid #343c69;
+  border-radius: 999px;
+  padding: 8px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.78rem;
+}
+.built-by a {
+  color: var(--primary-soft);
+  text-decoration: none;
+  font-weight: 600;
+}
+.built-by a:hover {
+  color: #fff;
+}
+
+.accordion-list {
+  display: grid;
+  gap: 10px;
+}
+.accordion-item {
+  border: 1px solid #303b69;
+  border-radius: 12px;
+  background: rgba(9, 13, 30, 0.7);
+}
+.accordion-trigger {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #d5dcfb;
+  padding: 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.accordion-trigger:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.accordion-item .dispute-card {
+  border: 0;
+  border-top: 1px solid #303b69;
+  border-radius: 0 0 12px 12px;
+}
 
 @media (max-width: 760px) {
   .page-shell { padding: 0 14px 24px; }
   .topbar-inner { padding: 12px 14px; }
   .contract { margin-left: 0; }
+  .built-by {
+    right: 10px;
+    bottom: 10px;
+    font-size: 0.72rem;
+    padding: 7px 10px;
+  }
 }
