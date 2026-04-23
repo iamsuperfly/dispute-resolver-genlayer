@@ -16,3 +16,12 @@ This repository uses fixed public asset paths so brand images can be uploaded ma
 - `og/og-image.png`
 
 Keep filenames stable to avoid breaking references in app/front-end integration layers.
+
+## How to upload and use your own images
+1. Put your image files in `public/assets/...` (for example `public/assets/logos/logo-light.svg`).
+2. Reference them in React/Next with an absolute path from `/assets/...` (example: `/assets/logos/logo-light.svg`).
+3. Restart `npm run dev` if the image does not refresh immediately.
+
+Current placeholders committed in this repo:
+- `/assets/logos/logo-light.svg`
+- `/assets/genlayer/genlayer-wordmark.svg`
