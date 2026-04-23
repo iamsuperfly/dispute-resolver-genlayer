@@ -1,6 +1,6 @@
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
-import { TransactionStatus, type TransactionHash } from "genlayer-js/types";
+import { TransactionStatus } from "genlayer-js/types";
 import { type Address } from "viem";
 
 export const GENLAYER_CHAIN = {
@@ -26,9 +26,6 @@ export type Dispute = {
 };
 
 export type TxStatus = "idle" | "submitted" | "accepted" | "finalized" | "failed";
-
-type TxConsensusStatus = TransactionStatus.ACCEPTED | TransactionStatus.FINALIZED;
-const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
 
 function normalizeBigInt(value: unknown): bigint {
   if (typeof value === "bigint") return value;
@@ -60,25 +57,26 @@ function toDispute(value: unknown): Dispute {
   };
 }
 
-function createGenLayerClient(account?: Address) {
+function createReadClient() {
   return createClient({
     chain: studionet,
-    endpoint: GENLAYER_CHAIN.rpcUrl,
-    ...(account ? { account } : {})
+    endpoint: GENLAYER_CHAIN.rpcUrl
   });
 }
 
-function toTransactionHash(value: string): TransactionHash {
-  if (!TX_HASH_REGEX.test(value)) {
-    throw new Error("Unexpected transaction hash format returned from submit_dispute.");
-  }
-
-  return value as TransactionHash;
+function createWriteClient(account: Address, provider: EthereumProvider) {
+  return createClient({
+    chain: studionet,
+    endpoint: GENLAYER_CHAIN.rpcUrl,
+    account,
+    provider
+  } as any);
 }
 
 export class GenlayerClient {
   async getLatestDispute(): Promise<Dispute | null> {
-    const result = await createGenLayerClient().readContract({
+    const client = createReadClient();
+    const result = await client.readContract({
       address: CONTRACT_ADDRESS,
       functionName: "get_latest_dispute",
       args: []
@@ -92,7 +90,8 @@ export class GenlayerClient {
   }
 
   async getDispute(id: bigint): Promise<Dispute | null> {
-    const result = await createGenLayerClient().readContract({
+    const client = createReadClient();
+    const result = await client.readContract({
       address: CONTRACT_ADDRESS,
       functionName: "get_dispute",
       args: [id]
@@ -103,7 +102,8 @@ export class GenlayerClient {
   }
 
   async getMyDisputes(address: Address): Promise<Dispute[]> {
-    const result = await createGenLayerClient(address).readContract({
+    const client = createReadClient();
+    const result = await client.readContract({
       address: CONTRACT_ADDRESS,
       functionName: "get_my_disputes",
       args: [address]
@@ -114,7 +114,8 @@ export class GenlayerClient {
   }
 
   async getMyDisputeIds(address: Address): Promise<bigint[]> {
-    const result = await createGenLayerClient(address).readContract({
+    const client = createReadClient();
+    const result = await client.readContract({
       address: CONTRACT_ADDRESS,
       functionName: "get_my_dispute_ids",
       args: [address]
@@ -124,20 +125,22 @@ export class GenlayerClient {
     return result.map(normalizeBigInt);
   }
 
-  async submitDispute(_ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<TransactionHash> {
-    const txHash = await createGenLayerClient(from).writeContract({
+  async submitDispute(ethereum: EthereumProvider, from: Address, claim: string, evidence: string): Promise<`0x${string}`> {
+    const client = createWriteClient(from, ethereum);
+    const txHash = await client.writeContract({
       address: CONTRACT_ADDRESS,
       functionName: "submit_dispute",
       args: [claim, evidence],
       value: 0n
     });
 
-    return toTransactionHash(txHash);
+    return txHash as `0x${string}`;
   }
 
-  async waitForTransaction(hash: TransactionHash, status: TxConsensusStatus) {
-    return createGenLayerClient().waitForTransactionReceipt({
-      hash,
+  async waitForTransaction(hash: `0x${string}`, status: TransactionStatus.ACCEPTED | TransactionStatus.FINALIZED) {
+    const client = createReadClient();
+    return client.waitForTransactionReceipt({
+      hash: hash as any,
       status,
       retries: 60,
       interval: 2000

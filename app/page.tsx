@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { TransactionStatus, type TransactionHash } from "genlayer-js/types";
+import { TransactionStatus } from "genlayer-js/types";
 
 import { useWallet } from "@/app/wallet-provider";
 import { CONTRACT_ADDRESS, formatError, GENLAYER_CHAIN, genlayerClient, type Dispute, type TxStatus } from "@/lib/genlayer";
@@ -37,7 +37,7 @@ export default function HomePage() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
 
-  async function waitForFinalizedStatus(hash: TransactionHash) {
+  async function waitForFinalizedStatus(hash: `0x${string}`) {
     setTxStatus("submitted");
     setTxStatusMessage("Submitted. Waiting for ACCEPTED status...");
 
