@@ -18,6 +18,19 @@ function getStepState(txStatus: TxStatus, step: "submitted" | "accepted" | "fina
   return order[txStatus] >= order[step];
 }
 
+function renderTxStatusMessage(message: string) {
+  return message.split(/(ACCEPTED|FINALIZED)/g).map((part, index) => {
+    if (part === "ACCEPTED" || part === "FINALIZED") {
+      return (
+        <span key={`${part}-${index}`} className="status-keyword">
+          {part}
+        </span>
+      );
+    }
+    return <span key={`message-${index}`}>{part}</span>;
+  });
+}
+
 export default function HomePage() {
   const { account, chainId, isConnected, isCorrectNetwork, connect, disconnect, ensureNetwork, provider, walletError } = useWallet();
 
@@ -42,6 +55,7 @@ export default function HomePage() {
   const [myDisputeIds, setMyDisputeIds] = useState<bigint[]>([]);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
+  const [expandedDisputeIds, setExpandedDisputeIds] = useState<Record<string, boolean>>({});
 
   async function waitForFinalizedStatus(hash: `0x${string}`) {
     setTxStatus("submitted");
@@ -159,12 +173,19 @@ export default function HomePage() {
     }
   }
 
+  function toggleDispute(disputeId: string) {
+    setExpandedDisputeIds((current) => ({
+      ...current,
+      [disputeId]: !current[disputeId]
+    }));
+  }
+
   return (
     <main className="page-shell">
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand-group">
-            <Image src="/assets/logos/logo-light.svg" alt="AI Dispute Resolver" width={40} height={40} />
+            <Image src="/assets/logos/file_000000004a8871f4a303c4c910e4bb9e.png" alt="AI Dispute Resolver" width={52} height={52} />
             <div>
               <h1 className="title">AI Dispute Resolver</h1>
               <p className="subtitle">Powered by GenLayer Intelligent Contracts</p>
@@ -186,13 +207,6 @@ export default function HomePage() {
           </div>
         </div>
       </header>
-
-      <section className="meta-row">
-        <span className="badge">Wallet chain: {isConnected ? chainId : "-"}</span>
-        <span className="badge">Target chain: {GENLAYER_CHAIN.id}</span>
-        <span className="badge">RPC: {GENLAYER_CHAIN.rpcUrl}</span>
-        <span className="badge contract">Contract: {shortAddress(CONTRACT_ADDRESS)}</span>
-      </section>
 
       {!isCorrectNetwork && isConnected && <p className="error">Wallet is on wrong network. Submissions are blocked.</p>}
       {walletError && <p className="error">{walletError}</p>}
@@ -226,13 +240,13 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-          <p className="muted">{txStatusMessage}</p>
+          <p className="status-message">{renderTxStatusMessage(txStatusMessage)}</p>
           <p className="hash">Tx: {txHash}</p>
         </section>
       )}
 
       <section className="card">
-        <h2>Resolution Lookup (get_dispute)</h2>
+        <h2>Resolution Lookup</h2>
         <form className="lookup-row" onSubmit={onLookupSubmit}>
           <input type="number" min={1} value={lookupId} onChange={(event) => setLookupId(event.target.value)} placeholder="Dispute ID" />
           <button type="submit" className="button secondary">Load Dispute</button>
@@ -243,7 +257,7 @@ export default function HomePage() {
       </section>
 
       <section className="card">
-        <h2>Latest Dispute (get_latest_dispute)</h2>
+        <h2>Latest Dispute</h2>
         <button onClick={() => void onLoadLatest()} type="button" className="button secondary">Refresh Latest Dispute</button>
         {isLatestLoading && <p className="muted">Loading latest dispute...</p>}
         {latestError && <p className="error">{latestError}</p>}
@@ -251,23 +265,51 @@ export default function HomePage() {
       </section>
 
       <section className="card">
-        <h2>My Dashboard (address-based reads)</h2>
+        <h2>My Dashboard</h2>
         <button onClick={() => void onLoadDashboard()} type="button" className="button secondary">Load My Disputes</button>
         {isDashboardLoading && <p className="muted">Loading your disputes...</p>}
         {dashboardError && <p className="error">{dashboardError}</p>}
         {myDisputeIds.length > 0 && <p className="muted">My dispute IDs: {myDisputeIds.map((id) => id.toString()).join(", ")}</p>}
-        <div className="grid">
+        <div className="accordion-list">
           {myDisputes.map((dispute) => (
-            <DisputeView key={dispute.id.toString()} dispute={dispute} />
+            <article key={dispute.id.toString()} className="accordion-item">
+              <button type="button" className="accordion-trigger" onClick={() => toggleDispute(dispute.id.toString())}>
+                <span>Dispute #{dispute.id.toString()}</span>
+                <span>{expandedDisputeIds[dispute.id.toString()] ? "−" : "+"}</span>
+              </button>
+              {expandedDisputeIds[dispute.id.toString()] && <DisputeView dispute={dispute} />}
+            </article>
           ))}
         </div>
       </section>
 
       <footer className="footer">
-        <span>Powered by</span>
-        <a href="https://docs.genlayer.com/" target="_blank" rel="noopener noreferrer" className="footer-brand">
-          <Image src="/assets/genlayer/genlayer-wordmark.svg" alt="GenLayer" width={92} height={22} />
-        </a>
+        <div className="footer-meta">
+          <a href={`https://dio.genlayer.com/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="footer-link">
+            Contract: <span className="hash-inline">{shortAddress(CONTRACT_ADDRESS)}</span>
+          </a>
+          <p>Wallet chain: {isConnected ? chainId : "-"}</p>
+          <p>Target chain: {GENLAYER_CHAIN.id}</p>
+          <p>RPC: {GENLAYER_CHAIN.rpcUrl}</p>
+          <button onClick={() => void ensureNetwork()} type="button" className="footer-network-button">
+            Add network manually →
+          </button>
+        </div>
+        <div className="footer-powered">
+          <span>Powered by GenLayer</span>
+          <a href="https://docs.genlayer.com/" target="_blank" rel="noopener noreferrer" className="footer-brand">
+            <Image src="/assets/genlayer/1000742892-removebg-preview.png" alt="Powered by GenLayer" width={230} height={140} />
+          </a>
+        </div>
+        <div className="footer-mascot">
+          <Image src="/assets/genlayer/1000742915-removebg-preview.png" alt="GenLayer mascot" width={148} height={148} />
+        </div>
+        <div className="built-by">
+          <span>Built by</span>
+          <a href="https://x.com/killsh0tx" target="_blank" rel="noopener noreferrer">
+            Superfly 🦅
+          </a>
+        </div>
       </footer>
     </main>
   );
