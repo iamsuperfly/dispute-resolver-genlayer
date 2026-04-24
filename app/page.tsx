@@ -185,7 +185,9 @@ export default function HomePage() {
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand-group">
-            <Image src="/assets/logos/file_000000004a8871f4a303c4c910e4bb9e.png" alt="AI Dispute Resolver" width={52} height={52} />
+            <div className="brand-logo-frame" aria-hidden="true">
+              <Image src="/assets/logos/dispute-resolver-logo.png" alt="AI Dispute Resolver" width={52} height={52} className="brand-logo-image" />
+            </div>
             <div>
               <h1 className="title">AI Dispute Resolver</h1>
               <p className="subtitle">Powered by GenLayer Intelligent Contracts</p>
@@ -285,20 +287,26 @@ export default function HomePage() {
 
       <footer className="footer">
         <div className="footer-meta">
-          <a href={`https://dio.genlayer.com/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="footer-link">
-            Contract: <span className="hash-inline">{shortAddress(CONTRACT_ADDRESS)}</span>
-          </a>
+          <p>
+            Contract:{" "}
+            <a href={`https://studio.genlayer.com/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="footer-link">
+              <span className="hash-inline">{shortAddress(CONTRACT_ADDRESS)}</span>
+            </a>
+          </p>
           <p>Wallet chain: {isConnected ? chainId : "-"}</p>
           <p>Target chain: {GENLAYER_CHAIN.id}</p>
           <p>RPC: {GENLAYER_CHAIN.rpcUrl}</p>
-          <button onClick={() => void ensureNetwork()} type="button" className="footer-network-button">
-            Add network manually →
-          </button>
+          <div className="footer-network-manual">
+            <p>Add network Manually</p>
+            <p>chain ID: {GENLAYER_CHAIN.id}</p>
+            <p>network name: GenLayer</p>
+            <p>rpc: {GENLAYER_CHAIN.rpcUrl}</p>
+          </div>
         </div>
         <div className="footer-powered">
           <span>Powered by</span>
           <div className="footer-brand" aria-label="GenLayer logo">
-            <Image src="/assets/genlayer/1000742892-removebg-preview.png" alt="Powered by GenLayer" width={230} height={140} />
+            <Image src="/assets/genlayer/genlayer-logo.png" alt="Powered by GenLayer" width={230} height={140} />
           </div>
         </div>
         <div className="built-by">

@@ -50,6 +50,20 @@ body {
 }
 
 .brand-group { display: flex; align-items: center; gap: 12px; }
+.brand-logo-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(180, 192, 245, 0.28);
+  background: linear-gradient(180deg, rgba(22, 28, 54, 0.95), rgba(14, 18, 38, 0.95));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.brand-logo-image {
+  display: block;
+  border-radius: 9px;
+}
 .title { margin: 0; font-size: 1.5rem; }
 .subtitle { margin: 2px 0 0; font-size: 0.78rem; color: var(--muted); }
 
@@ -206,17 +220,14 @@ textarea { min-height: 110px; resize: vertical; }
 .hash-inline {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.footer-network-button {
-  margin-top: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--primary-soft);
-  cursor: pointer;
-  text-align: left;
+.footer-network-manual {
+  margin-top: 6px;
+  display: grid;
+  gap: 3px;
 }
-.footer-network-button:hover {
-  text-decoration: underline;
+.footer-network-manual p:first-child {
+  color: #cad5ff;
+  text-transform: none;
 }
 .footer-powered {
   display: flex;
