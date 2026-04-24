@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import { TransactionStatus } from "genlayer-js/types";
 
@@ -33,6 +33,7 @@ function renderTxStatusMessage(message: string) {
 
 export default function HomePage() {
   const { account, chainId, isConnected, isCorrectNetwork, connect, disconnect, ensureNetwork, provider, walletError } = useWallet();
+  const [showSplash, setShowSplash] = useState(true);
 
   const [claim, setClaim] = useState("");
   const [evidence, setEvidence] = useState("");
@@ -56,6 +57,14 @@ export default function HomePage() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
   const [expandedDisputeIds, setExpandedDisputeIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setShowSplash(false);
+    }, 3000);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   async function waitForFinalizedStatus(hash: `0x${string}`) {
     setTxStatus("submitted");
@@ -181,7 +190,17 @@ export default function HomePage() {
   }
 
   return (
-    <main className="page-shell">
+    <>
+      {showSplash && (
+        <div className="splash-screen" role="status" aria-live="polite" aria-label="Loading AI Dispute Resolver">
+          <div className="splash-logo-wrap">
+            <Image src="/assets/logos/dispute-resolver-logo.png" alt="AI Dispute Resolver logo" width={122} height={122} className="splash-logo" priority />
+            <span className="splash-ring" aria-hidden="true" />
+          </div>
+        </div>
+      )}
+
+      <main className={`page-shell ${showSplash ? "app-hidden" : "app-ready"}`}>
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand-group">
@@ -299,14 +318,15 @@ export default function HomePage() {
           <div className="footer-network-manual">
             <p>Add network Manually</p>
             <p>chain ID: {GENLAYER_CHAIN.id}</p>
-            <p>network name: GenLayer</p>
+            <p>network name: {GENLAYER_CHAIN.name}</p>
             <p>rpc: {GENLAYER_CHAIN.rpcUrl}</p>
+            <p>currency symbol: {GENLAYER_CHAIN.currency.symbol}</p>
           </div>
         </div>
         <div className="footer-powered">
           <span>Powered by</span>
           <div className="footer-brand" aria-label="GenLayer logo">
-            <Image src="/assets/genlayer/genlayer-logo.png" alt="Powered by GenLayer" width={230} height={140} />
+            <Image src="/assets/genlayer/genlayer-wordmark.svg" alt="Powered by GenLayer" width={180} height={42} />
           </div>
         </div>
         <div className="built-by">
@@ -316,7 +336,8 @@ export default function HomePage() {
           </a>
         </div>
       </footer>
-    </main>
+      </main>
+    </>
   );
 }
 
