@@ -204,11 +204,11 @@ export default function HomePage() {
         <div className="topbar-inner">
           <div className="brand-group">
             <div className="brand-logo-frame" aria-hidden="true">
-              <Image src="/assets/logos/dispute-resolver-logo.png" alt="AI Dispute Resolver" width={52} height={52} className="brand-logo-image" />
+              <Image src="/assets/logos/dispute-resolver-logo.png" alt="Dispute Resolver" width={44} height={44} className="brand-logo-image" />
             </div>
             <div>
-              <h1 className="title">AI Dispute Resolver</h1>
-              <p className="subtitle">Powered by GenLayer Intelligent Contracts</p>
+              <h1 className="title">Dispute Resolver</h1>
+              <p className="subtitle">Powered by GenLayer</p>
             </div>
           </div>
 
@@ -233,6 +233,7 @@ export default function HomePage() {
 
       <section className="card">
         <h2>Submit Dispute</h2>
+        <p className="muted form-intro">Provide a clear claim and factual evidence to help the system deliver a fair verdict.</p>
         <form className="grid" onSubmit={onSubmit}>
           <div>
             <label htmlFor="claim">Claim ({claim.length}/{MAX_CHARS})</label>
@@ -325,7 +326,13 @@ export default function HomePage() {
         <div className="footer-powered">
           <span>Powered by</span>
           <div className="footer-brand" aria-label="GenLayer logo">
-            <Image src="/assets/genlayer/genlayer-logo.png" alt="Powered by GenLayer" width={180} height={48} />
+            <Image
+              src="/assets/genlayer/genlayer-logo.png"
+              alt="Powered by GenLayer"
+              width={595}
+              height={419}
+              className="footer-brand-image"
+            />
           </div>
         </div>
         <div className="built-by">
