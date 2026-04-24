@@ -296,13 +296,10 @@ export default function HomePage() {
           </button>
         </div>
         <div className="footer-powered">
-          <span>Powered by GenLayer</span>
-          <a href="https://docs.genlayer.com/" target="_blank" rel="noopener noreferrer" className="footer-brand">
+          <span>Powered by</span>
+          <div className="footer-brand" aria-label="GenLayer logo">
             <Image src="/assets/genlayer/1000742892-removebg-preview.png" alt="Powered by GenLayer" width={230} height={140} />
-          </a>
-        </div>
-        <div className="footer-mascot">
-          <Image src="/assets/genlayer/1000742915-removebg-preview.png" alt="GenLayer mascot" width={148} height={148} />
+          </div>
         </div>
         <div className="built-by">
           <span>Built by</span>

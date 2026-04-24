@@ -220,11 +220,10 @@ textarea { min-height: 110px; resize: vertical; }
 }
 .footer-powered {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  text-align: center;
+  gap: 10px;
 }
 .footer-brand {
   display: inline-flex;
