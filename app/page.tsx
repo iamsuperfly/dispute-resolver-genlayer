@@ -195,7 +195,6 @@ export default function HomePage() {
         <div className="splash-screen" role="status" aria-live="polite" aria-label="Loading AI Dispute Resolver">
           <div className="splash-logo-wrap">
             <Image src="/assets/logos/dispute-resolver-logo.png" alt="AI Dispute Resolver logo" width={122} height={122} className="splash-logo" priority />
-            <span className="splash-ring" aria-hidden="true" />
           </div>
         </div>
       )}
@@ -326,7 +325,7 @@ export default function HomePage() {
         <div className="footer-powered">
           <span>Powered by</span>
           <div className="footer-brand" aria-label="GenLayer logo">
-            <Image src="/assets/genlayer/genlayer-wordmark.svg" alt="Powered by GenLayer" width={180} height={42} />
+            <Image src="/assets/genlayer/genlayer-logo.png" alt="Powered by GenLayer" width={180} height={48} />
           </div>
         </div>
         <div className="built-by">
