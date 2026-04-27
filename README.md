@@ -1,61 +1,102 @@
-# GenLayer Dispute Resolver Frontend (Next.js + official GenLayerJS SDK)
+# Dispute Resolver (GenLayer + Next.js)
 
-Production-ready frontend that talks directly to the deployed GenLayer dispute resolver contract with real wallet interactions (MetaMask), no mocks.
+A production-ready decentralized app for submitting disputes, receiving AI-generated verdicts on GenLayer, and tracking dispute history from a connected wallet.
 
-## Contract + network
+## Live project links
+
+- **Live app:** https://dispute-resolver-genlayer.vercel.app
+- **Demo video:** https://youtube.com/shorts/Q1v8xL8kEds?si=R3YWM9rNtN-xtQaJ
+- **Studio contract link:** https://studio.genlayer.com/?import-contract=0xF38D2ED80643F8d8B47973F2789ef04F7259b86e
+
+## What this app does
+
+This app lets users:
+
+1. Connect a MetaMask wallet.
+2. Switch to the GenLayer Studio network (chain `61999`).
+3. Submit a dispute with:
+   - a **claim**
+   - supporting **evidence**
+4. Wait for transaction states:
+   - **submitted**
+   - **ACCEPTED**
+   - **FINALIZED**
+5. Read disputes from the contract:
+   - latest dispute
+   - dispute by ID
+   - all disputes owned by the connected wallet
+
+---
+
+## End-to-end architecture
+
+### 1) Frontend (Next.js / React)
+
+The UI in `app/page.tsx` includes:
+
+- wallet connection + network status
+- submit dispute form
+- transaction status stepper
+- latest dispute + dispute lookup by ID
+- per-wallet dashboard
+
+Wallet/network state is managed in `app/wallet-provider.tsx`.
+
+### 2) GenLayer JS integration (`lib/genlayer.ts`)
+
+This app uses the official `genlayer-js` SDK:
+
+- `readContract(...)` for view methods
+- `writeContract(...)` for `submit_dispute`
+- `waitForTransactionReceipt(...)` for ACCEPTED/FINALIZED tracking
+
+It also centralizes network constants, contract address, and dispute payload normalization.
+
+### 3) Smart contract (`contracts/ai_dispute_resolver-genlayer.py`)
+
+The contract:
+
+- validates claim/evidence (required, max 800 chars)
+- uses GenLayer AI prompt execution to generate verdict + reason
+- stores disputes and owner mapping onchain
+- provides read methods for latest dispute, by ID, and per-user dispute lists
+
+---
+
+## Contract + network details
 
 - **RPC:** `https://studio.genlayer.com/api`
 - **Chain ID:** `61999`
-- **Contract:** `0xF38D2ED80643F8d8B47973F2789ef04F7259b86e`
-- **Contract link:** https://studio.genlayer.com/?import-contract=0xF38D2ED80643F8d8B47973F2789ef04F7259b86e
+- **Network:** GenLayer Studio
+- **Contract address:** `0xF38D2ED80643F8d8B47973F2789ef04F7259b86e`
 
-Integrated methods:
-- `submit_dispute(claim: str, evidence: str)` (write)
-- `get_my_disputes(user: str)` (view)
-- `get_my_dispute_ids(user: str)` (view)
-- `get_latest_dispute()` (view)
-- `get_dispute(dispute_id: u64)` (view)
+### Integrated contract methods
 
-## Features implemented
+- `submit_dispute(claim: str, evidence: str)`
+- `get_dispute(dispute_id: u64)`
+- `get_latest_dispute()`
+- `get_my_disputes(user: str)`
+- `get_my_dispute_ids(user: str)`
 
-- MetaMask connect/disconnect flow via `wagmi` injected connector.
-- Wrong-network detection + one-click switch to GenLayer chain.
-- Submit dispute form:
-  - claim + evidence inputs
-  - max 800 chars each
-  - client-side validation
-  - transaction lifecycle feedback (pending hash / confirmation / errors)
-- Resolution display through dispute lookup (`get_dispute`).
-- Latest dispute panel (`get_latest_dispute`).
-- Personal dashboard (`get_my_disputes` + `get_my_dispute_ids`) that loads connected account context on demand.
-- Robust loading, empty, and error states across reads/writes.
+---
 
-## SDK integration note
+## Local development
 
-This frontend uses the official `genlayer-js` SDK for contract interaction:
-- `readContract` for read-only methods (`eth_call`)
-- `writeContract` for state-changing methods (`eth_sendTransaction`)
-- `waitForTransactionReceipt` for ACCEPTED/FINALIZED status tracking
-
-The app keeps lightweight response normalization for the dispute UI model, but no longer relies on custom raw RPC JSON parsing hacks.
-
-## Local run
-
-### 1) Install dependencies
+### Install
 
 ```bash
 npm install
 ```
 
-### 2) Start local development
+### Run locally
 
 ```bash
 npm run dev
 ```
 
-Then open `http://localhost:3000`.
+Open: `http://localhost:3000`
 
-### 3) Production build validation
+### Validate
 
 ```bash
 npm run lint
@@ -63,35 +104,11 @@ npm run typecheck
 npm run build
 ```
 
-## Environment/config requirements
-
-This app currently requires **no environment variables** for default operation because RPC, chain ID, and contract address are committed in `lib/genlayer.ts`.
-
-If you want to parameterize for multiple environments later, you can move those constants to `NEXT_PUBLIC_...` vars.
-
-## How to verify real integration
-
-1. Open the app in a browser with MetaMask installed.
-2. Connect wallet and switch to chain `61999` when prompted.
-3. Submit a dispute with valid claim/evidence.
-4. Confirm tx hash appears and then confirmation status.
-5. Verify returned disputes through:
-   - **Latest Dispute** panel
-   - **Resolution Lookup** by ID
-   - **My Dashboard** (must reflect connected account only)
-6. Cross-check results in GenLayer Studio using the contract link above.
-
-## Deploy on Vercel
-
-1. Import this repository in Vercel.
-2. Framework preset: **Next.js**.
-3. Build command: `npm run build`.
-4. Output: default Next.js output.
-5. No mandatory env vars required for current defaults.
+---
 
 ## Assets
 
-Brand assets are expected under `public/assets/`.
+Brand assets are stored under `public/assets/`.
 
 - `public/assets/genlayer/`
 - `public/assets/logos/`
